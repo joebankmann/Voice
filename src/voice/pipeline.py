@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from collections.abc import Callable
 from typing import Any
 
@@ -35,7 +36,7 @@ class VoicePipeline:
         self.audio = audio
         self.system_prompt = system_prompt
         self._listeners: list[PipelineListener] = []
-        self._interrupted = False
+        self._interrupted = threading.Event()
         self._started = False
 
     def add_listener(self, listener: PipelineListener) -> None:
@@ -63,7 +64,7 @@ class VoicePipeline:
         self._emit_state()
 
     def stop(self) -> None:
-        self._interrupted = True
+        self._interrupted.set()
         self.llm.cancel()
         self._stop_speech()
         if self.audio is not None and self._started:
@@ -76,7 +77,7 @@ class VoicePipeline:
         self.handle_speech_start()
 
     def handle_speech_start(self) -> None:
-        self._interrupted = True
+        self._interrupted.set()
         for event in self.session.on_user_speech_start():
             self._apply_session_event(event)
         self._emit_state()
@@ -95,7 +96,7 @@ class VoicePipeline:
         return ""
 
     def _stream_reply(self) -> str:
-        self._interrupted = False
+        self._interrupted.clear()
         self.chunker.flush()
         tokens: list[str] = []
 
@@ -104,24 +105,28 @@ class VoicePipeline:
                 self.session.history,
                 self.system_prompt,
             ):
-                if self._interrupted:
+                if self._interrupted.is_set():
                     break
                 tokens.append(token)
                 partial = "".join(tokens)
                 self._emit({"type": "assistant_partial", "text": partial})
                 for phrase in self.chunker.push(token):
                     self._speak(phrase)
-            if not self._interrupted:
+            if not self._interrupted.is_set():
                 for phrase in self.chunker.flush():
                     self._speak(phrase)
         except Exception:
-            if not self._interrupted:
+            if not self._interrupted.is_set():
                 raise
 
         assistant_text = "".join(tokens).strip()
         if assistant_text:
             self.session.append_assistant(assistant_text)
             self._emit({"type": "assistant_final", "text": assistant_text})
+        if not self._interrupted.is_set():
+            for event in self.session.on_assistant_audio_done():
+                self._apply_session_event(event)
+            self._emit_state()
         return assistant_text
 
     def _apply_session_event(self, event: SessionEvent) -> None:

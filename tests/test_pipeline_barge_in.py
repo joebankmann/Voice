@@ -1,3 +1,5 @@
+import threading
+
 from voice.chunker import PhraseChunker
 from voice.pipeline import VoicePipeline
 from voice.session import ConversationSession, SessionState
@@ -47,3 +49,58 @@ def test_barge_in_stops_playback_and_cancels_llm():
     assert llm.cancelled is True
     assert tts.stopped is True
     assert session.state.name == "LISTENING"
+
+
+def test_completed_turn_returns_to_listening_and_emits_state():
+    session = ConversationSession()
+    session.force_state(SessionState.LISTENING)
+    pipeline = VoicePipeline(
+        session=session,
+        llm=FakeLlm(),
+        tts=FakeTts(),
+        chunker=PhraseChunker(),
+    )
+    states = []
+    pipeline.on_state_change(states.append)
+
+    reply = pipeline.run_turn("Hello")
+
+    assert reply
+    assert session.state == SessionState.LISTENING
+    assert states[-1] == "LISTENING"
+
+
+def test_barge_in_interrupts_slow_stream_running_on_worker_thread():
+    stream_blocked = threading.Event()
+    release_stream = threading.Event()
+
+    class SlowLlm(FakeLlm):
+        def stream_chat(self, messages, system_prompt):
+            yield "Starting."
+            stream_blocked.set()
+            release_stream.wait(timeout=1)
+            yield " This should be interrupted."
+
+        def cancel(self):
+            super().cancel()
+            release_stream.set()
+
+    session = ConversationSession()
+    session.force_state(SessionState.LISTENING)
+    llm = SlowLlm()
+    pipeline = VoicePipeline(
+        session=session,
+        llm=llm,
+        tts=FakeTts(),
+        chunker=PhraseChunker(),
+    )
+    worker = threading.Thread(target=pipeline.run_turn, args=("Hello",))
+
+    worker.start()
+    assert stream_blocked.wait(timeout=1)
+    pipeline.handle_speech_start()
+    worker.join(timeout=1)
+
+    assert not worker.is_alive()
+    assert llm.cancelled is True
+    assert session.state == SessionState.LISTENING

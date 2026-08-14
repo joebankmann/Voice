@@ -21,6 +21,7 @@ stt:
 tts:
   piper_bin: piper
   voice_path: models/en_US-lessac-medium.onnx
+  sample_rate: 22050
 vad:
   threshold: 0.5
   min_speech_ms: 250
@@ -32,3 +33,4 @@ vad:
     assert cfg.llm.base_url == "http://127.0.0.1:8080/v1"
     assert cfg.llm.model == "qwen3-8b"
     assert cfg.stt.model_path.endswith("ggml-large-v3-turbo.bin")
+    assert cfg.tts.sample_rate == 22050

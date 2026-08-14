@@ -30,6 +30,7 @@ class SttConfig:
 class TtsConfig:
     piper_bin: str
     voice_path: str
+    sample_rate: int = 22_050
 
 
 @dataclass(frozen=True)

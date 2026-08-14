@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import importlib
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +25,7 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
     tts = TtsEngine(
         config.tts.piper_bin,
         config.tts.voice_path,
-        sample_rate=config.audio.sample_rate,
+        sample_rate=config.tts.sample_rate,
     )
     system_prompt_path = config_dir / config.llm.system_prompt_path
     return VoicePipeline(
@@ -69,11 +71,18 @@ def run_cli(
     )
     utterance: list[np.ndarray] = []
     silence_frames = 0
+    pending_turns: deque[Future[str]] = deque()
+    turn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice-turn")
 
     pipeline.start()
     print("Listening. Press Ctrl-C to stop.")
     try:
         while True:
+            while pending_turns and pending_turns[0].done():
+                reply = pending_turns.popleft().result()
+                if reply:
+                    print(f"Assistant: {reply}")
+
             frame = audio.read_frame()
             if vad.is_speech(frame):
                 if not utterance:
@@ -97,15 +106,18 @@ def run_cli(
                 transcript = stt.transcribe(pcm16, config.audio.sample_rate)
                 if transcript:
                     print(f"You: {transcript}")
-                    reply = pipeline.run_turn(transcript)
-                    if reply:
-                        print(f"Assistant: {reply}")
+                    pending_turns.append(
+                        turn_executor.submit(pipeline.run_turn, transcript)
+                    )
             utterance = []
             silence_frames = 0
     except KeyboardInterrupt:
         print("\nStopping.")
     finally:
+        for pending_turn in pending_turns:
+            pending_turn.cancel()
         pipeline.stop()
+        turn_executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
