@@ -113,3 +113,28 @@ connection or cloud API.
 
 An NSFW adapter, improved TTS, and a helper model are intentionally deferred to
 Phase 2.
+
+## Local smoke-test notes
+
+Measured on an Apple M3 Pro on 2026-08-13 with Homebrew `llama.cpp` b10360,
+Qwen3 8B Q4_K_M, Whisper large-v3-turbo, and Piper en_US-lessac-medium.
+
+- Initial model load reached the listening state in about 11.46 s. A warm traced
+  restart loaded in 0.81 s. The server log identified `Apple M3 Pro` and
+  reported all 37/37 model layers offloaded to the GPU.
+- A non-streaming localhost completion returned HTTP 200 in 0.319 s at 16.64
+  generated tokens/s (two generated tokens). A streaming completion delivered
+  its first HTTP bytes in 0.176 s, completed in 0.525 s, and generated at 30.48
+  tokens/s (seven generated tokens).
+- With the server default reasoning mode, the configured `LlmClient` took 4.844
+  s to yield its first visible token because Qwen generated hidden reasoning
+  tokens. Starting the same script with
+  `LLAMA_ARG_REASONING=off scripts/run_llama_server.sh` reduced first visible
+  token latency to 0.323 s and total completion latency to 0.731 s. Use this
+  non-thinking setting for ordinary voice turns.
+- The configured Piper adapter produced 3.448 s of non-silent mono PCM (152,064
+  bytes, RMS 3,969) in 0.837 s. Feeding that audio to the configured Whisper
+  adapter returned the exact phrase in 3.530 s.
+- Silero VAD loaded locally in 0.032 s. The automated suite passed 19/19 tests.
+- Microphone barge-in, physical playback, UI interaction, and end-to-end
+  time-to-first-audio remain **inconclusive — requires human mic test**.
