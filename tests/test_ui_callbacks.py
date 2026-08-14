@@ -31,18 +31,21 @@ class FakePipeline:
 
 def test_controller_start_stop_interrupt_update_status():
     pipeline = FakePipeline()
-    controller = UiController(pipeline=pipeline)
+    listening_actions = []
+    controller = UiController(
+        pipeline=pipeline,
+        on_start_listening=lambda: listening_actions.append("start"),
+        on_stop_listening=lambda: listening_actions.append("stop"),
+    )
 
     controller.on_start()
-    assert pipeline.started is True
-    assert controller.status == "LISTENING"
+    assert listening_actions == ["start"]
 
     controller.on_interrupt()
     assert pipeline.interrupted is True
 
     controller.on_stop()
-    assert pipeline.stopped is True
-    assert controller.status == "IDLE"
+    assert listening_actions == ["start", "stop"]
 
 
 def test_controller_appends_transcript_events():

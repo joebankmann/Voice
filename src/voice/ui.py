@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -14,6 +15,8 @@ except ModuleNotFoundError:
 @dataclass
 class UiController:
     pipeline: Any
+    on_start_listening: Callable[[], None] | None = None
+    on_stop_listening: Callable[[], None] | None = None
     status: str = "IDLE"
     transcript_lines: list[str] = field(default_factory=list)
 
@@ -21,9 +24,15 @@ class UiController:
         self.pipeline.add_listener(self.handle_event)
 
     def on_start(self) -> None:
+        if self.on_start_listening is not None:
+            self.on_start_listening()
+            return
         self.pipeline.start()
 
     def on_stop(self) -> None:
+        if self.on_stop_listening is not None:
+            self.on_stop_listening()
+            return
         self.pipeline.stop()
 
     def on_interrupt(self) -> None:
@@ -39,11 +48,20 @@ class UiController:
             self.transcript_lines.append(f"Assistant: {event['text']}")
 
 
-def run_app(pipeline: Any) -> None:
+def run_app(
+    pipeline: Any,
+    *,
+    on_start_listening: Callable[[], None] | None = None,
+    on_stop_listening: Callable[[], None] | None = None,
+) -> None:
     if tk is None or scrolledtext is None:
         raise RuntimeError("Tkinter is required to run the desktop UI")
 
-    controller = UiController(pipeline=pipeline)
+    controller = UiController(
+        pipeline=pipeline,
+        on_start_listening=on_start_listening,
+        on_stop_listening=on_stop_listening,
+    )
     root = tk.Tk()
     root.title("Voice")
     root.geometry("520x640")
@@ -75,5 +93,10 @@ def run_app(pipeline: Any) -> None:
         padx=4,
     )
 
+    def close_window() -> None:
+        controller.on_stop()
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", close_window)
     refresh()
     root.mainloop()

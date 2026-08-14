@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
@@ -41,16 +42,17 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
     )
 
 
-def run_cli(
+def run_listen_loop(
     pipeline: VoicePipeline,
     *,
     config: AppConfig,
     stt: SttEngine,
     vad: VadEngine,
+    stop_event: threading.Event,
 ) -> None:
     audio = pipeline.audio
     if audio is None:
-        raise RuntimeError("CLI mode requires an AudioHub")
+        raise RuntimeError("Listening requires an AudioHub")
 
     silence_frames_needed = max(
         1,
@@ -73,10 +75,8 @@ def run_cli(
     pending_turns: deque[Future[str]] = deque()
     turn_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="voice-turn")
 
-    pipeline.start()
-    print("Listening. Press Ctrl-C to stop.")
     try:
-        while True:
+        while not stop_event.is_set():
             while pending_turns and pending_turns[0].done():
                 reply = pending_turns.popleft().result()
                 if reply:
@@ -110,13 +110,77 @@ def run_cli(
                     )
             utterance = []
             silence_frames = 0
-    except KeyboardInterrupt:
-        print("\nStopping.")
     finally:
         for pending_turn in pending_turns:
             pending_turn.cancel()
-        pipeline.stop()
         turn_executor.shutdown(wait=True, cancel_futures=True)
+
+
+def run_cli(
+    pipeline: VoicePipeline,
+    *,
+    config: AppConfig,
+    stt: SttEngine,
+    vad: VadEngine,
+) -> None:
+    stop_event = threading.Event()
+    pipeline.start()
+    print("Listening. Press Ctrl-C to stop.")
+    try:
+        run_listen_loop(
+            pipeline,
+            config=config,
+            stt=stt,
+            vad=vad,
+            stop_event=stop_event,
+        )
+    except KeyboardInterrupt:
+        print("\nStopping.")
+    finally:
+        stop_event.set()
+        pipeline.stop()
+
+
+class ListenLoopThread:
+    def __init__(
+        self,
+        pipeline: VoicePipeline,
+        *,
+        config: AppConfig,
+        stt: SttEngine,
+        vad: VadEngine,
+    ) -> None:
+        self.pipeline = pipeline
+        self.config = config
+        self.stt = stt
+        self.vad = vad
+        self.stop_event = threading.Event()
+        self.thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self.thread is not None and self.thread.is_alive():
+            return
+        self.stop_event.clear()
+        self.pipeline.start()
+        self.thread = threading.Thread(
+            target=run_listen_loop,
+            kwargs={
+                "pipeline": self.pipeline,
+                "config": self.config,
+                "stt": self.stt,
+                "vad": self.vad,
+                "stop_event": self.stop_event,
+            },
+            name="voice-listen",
+            daemon=True,
+        )
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        if self.thread is not None:
+            self.thread.join(timeout=0.5)
+        self.pipeline.stop()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -139,19 +203,31 @@ def main(argv: list[str] | None = None) -> None:
     config_path = Path(args.config).resolve()
     config = load_config(config_path)
     pipeline = build_pipeline(config, config_path.parent)
+    stt = SttEngine(config.stt.whisper_bin, config.stt.model_path)
+    vad = create_default_vad(
+        threshold=config.vad.threshold,
+        sample_rate=config.audio.sample_rate,
+    )
 
     if not args.cli:
-        run_app(pipeline)
+        listen_loop = ListenLoopThread(
+            pipeline,
+            config=config,
+            stt=stt,
+            vad=vad,
+        )
+        run_app(
+            pipeline,
+            on_start_listening=listen_loop.start,
+            on_stop_listening=listen_loop.stop,
+        )
         return
 
     run_cli(
         pipeline,
         config=config,
-        stt=SttEngine(config.stt.whisper_bin, config.stt.model_path),
-        vad=create_default_vad(
-            threshold=config.vad.threshold,
-            sample_rate=config.audio.sample_rate,
-        ),
+        stt=stt,
+        vad=vad,
     )
 
 
