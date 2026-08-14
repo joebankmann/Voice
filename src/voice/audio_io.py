@@ -56,11 +56,29 @@ class AudioHub:
         while True:
             yield self.read_frame()
 
-    def play(self, audio: bytes | np.ndarray) -> None:
+    def play(
+        self,
+        audio: bytes | np.ndarray,
+        *,
+        sample_rate: int | None = None,
+    ) -> None:
         if isinstance(audio, bytes):
             samples = np.frombuffer(audio, dtype="<i2").astype(np.float32) / 32768.0
         else:
             samples = np.asarray(audio, dtype=np.float32).reshape(-1)
+        source_rate = self.sample_rate if sample_rate is None else sample_rate
+        if source_rate <= 0:
+            raise ValueError("sample_rate must be positive")
+        if samples.size and source_rate != self.sample_rate:
+            output_size = round(samples.size * self.sample_rate / source_rate)
+            source_times = np.arange(samples.size) / source_rate
+            output_times = np.arange(output_size) / self.sample_rate
+            samples = np.interp(
+                output_times,
+                source_times,
+                samples,
+                right=float(samples[-1]),
+            ).astype(np.float32)
         if samples.size:
             with self._playback_lock:
                 self._playback.append(samples.copy())

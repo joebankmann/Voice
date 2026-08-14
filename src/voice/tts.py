@@ -16,10 +16,12 @@ class TtsEngine:
         piper_bin: str,
         voice_path: str,
         *,
+        sample_rate: int,
         runner: ProcessRunner = subprocess.run,
     ) -> None:
         self._piper_bin = piper_bin
         self._voice_path = voice_path
+        self.sample_rate = sample_rate
         self._runner = runner
 
     def synthesize(self, text: str) -> bytes:
