@@ -18,14 +18,27 @@ from voice.stt import SttEngine
 from voice.tts import TtsEngine
 from voice.ui import run_app
 from voice.vad import VadEngine, create_default_vad
+from voice.voices import discover_voices, resolve_voice
+
+
+def _resolve_path(config_dir: Path, value: str) -> Path:
+    path = Path(value)
+    return path if path.is_absolute() else config_dir / path
 
 
 def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
     audio = AudioHub(sample_rate=config.audio.sample_rate)
+    voice_path = _resolve_path(config_dir, config.tts.voice_path)
+    voices_dir = _resolve_path(config_dir, config.tts.voices_dir)
+    voices = discover_voices(voices_dir, default_sample_rate=config.tts.sample_rate)
+    matched = resolve_voice(voices, voice_path)
+    sample_rate = matched.sample_rate if matched is not None else config.tts.sample_rate
+    model_path = matched.model_path if matched is not None else voice_path
     tts = TtsEngine(
         config.tts.piper_bin,
-        config.tts.voice_path,
-        sample_rate=config.tts.sample_rate,
+        str(model_path),
+        sample_rate=sample_rate,
+        length_scale=config.tts.length_scale,
     )
     system_prompt_path = config_dir / config.llm.system_prompt_path
     return VoicePipeline(
@@ -216,10 +229,21 @@ def main(argv: list[str] | None = None) -> None:
             stt=stt,
             vad=vad,
         )
+        voices_dir = _resolve_path(config_path.parent, config.tts.voices_dir)
+        voices = discover_voices(
+            voices_dir,
+            default_sample_rate=config.tts.sample_rate,
+        )
         run_app(
             pipeline,
             on_start_listening=listen_loop.start,
             on_stop_listening=listen_loop.stop,
+            voices=voices,
+            selected_voice=Path(pipeline.tts.voice_path).stem,
+            on_voice_selected=lambda voice: pipeline.tts.apply_voice_info(
+                voice,
+                length_scale=config.tts.length_scale,
+            ),
         )
         return
 

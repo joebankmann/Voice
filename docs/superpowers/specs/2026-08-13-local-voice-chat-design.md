@@ -109,7 +109,8 @@ Responsibilities:
 - Piper CLI or library
 - Input: text chunks
 - Output: PCM/WAV to playback queue
-- Configurable voice
+- Configurable voice via `tts.voice_path`, discoverable voices under `tts.voices_dir`, and `tts.length_scale` for speaking rate
+- Desktop UI voice dropdown switches the active Piper model at runtime
 
 ### 6. Simple desktop UI (Tkinter)
 
@@ -120,6 +121,7 @@ Must show:
 - Connection / run status: Idle, Listening, Speaking, Error
 - Start / Stop conversation toggle
 - Manual Interrupt button (same cancel path as barge-in)
+- Voice dropdown for installed Piper models under `tts.voices_dir`
 - Scrolling transcript: user and assistant turns as they finalize / stream in
 - Optional one-line latency hint (time-to-first-audio for last turn) when measured
 

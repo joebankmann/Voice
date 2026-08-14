@@ -31,6 +31,8 @@ class TtsConfig:
     piper_bin: str
     voice_path: str
     sample_rate: int = 22_050
+    voices_dir: str = "models"
+    length_scale: float = 1.0
 
 
 @dataclass(frozen=True)

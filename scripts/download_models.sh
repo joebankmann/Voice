@@ -26,4 +26,9 @@ Piper en_US-lessac-medium JSON (<1 MB)
 Destination: models/en_US-lessac-medium.onnx.json
 curl -L --fail --output models/en_US-lessac-medium.onnx.json \
   https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_US/lessac/medium/en_US-lessac-medium.onnx.json
+
+Additional Piper voices
+Browse https://github.com/rhasspy/piper/blob/master/VOICES.md
+Download any matching .onnx + .onnx.json pair into the configured voices_dir
+(default: models/). The desktop UI lists every *.onnx file found there.
 EOF

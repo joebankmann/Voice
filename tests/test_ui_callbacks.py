@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from voice.session import SessionState
 from voice.ui import UiController
+from voice.voices import VoiceInfo
 
 
 class FakePipeline:
@@ -55,3 +58,20 @@ def test_controller_appends_transcript_events():
     controller.handle_event({"type": "assistant_final", "text": "hello"})
 
     assert controller.transcript_lines == ["You: hi", "Assistant: hello"]
+
+
+def test_controller_voice_change_invokes_callback():
+    selected: list[str] = []
+    voices = [
+        VoiceInfo("alpha", Path("alpha.onnx"), None, 22050),
+        VoiceInfo("beta", Path("beta.onnx"), None, 22050),
+    ]
+    controller = UiController(
+        pipeline=FakePipeline(),
+        voices=voices,
+        selected_voice="alpha",
+        on_voice_selected=lambda voice: selected.append(voice.name),
+    )
+    controller.on_voice_change("beta")
+    assert selected == ["beta"]
+    assert controller.selected_voice == "beta"

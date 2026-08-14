@@ -12,7 +12,9 @@ stt:
 tts:
   piper_bin: piper
   voice_path: models/en_US-lessac-medium.onnx
+  voices_dir: models
   sample_rate: 22050
+  length_scale: 1.0
 vad:
   threshold: 0.5
   min_speech_ms: 250

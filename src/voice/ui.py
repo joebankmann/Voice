@@ -4,12 +4,15 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from voice.voices import VoiceInfo
+
 try:
     import tkinter as tk
-    from tkinter import scrolledtext
+    from tkinter import scrolledtext, ttk
 except ModuleNotFoundError:
     tk = None
     scrolledtext = None
+    ttk = None
 
 
 @dataclass
@@ -17,11 +20,16 @@ class UiController:
     pipeline: Any
     on_start_listening: Callable[[], None] | None = None
     on_stop_listening: Callable[[], None] | None = None
+    on_voice_selected: Callable[[VoiceInfo], None] | None = None
+    voices: list[VoiceInfo] = field(default_factory=list)
+    selected_voice: str = ""
     status: str = "IDLE"
     transcript_lines: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.pipeline.add_listener(self.handle_event)
+        if not self.selected_voice and self.voices:
+            self.selected_voice = self.voices[0].name
 
     def on_start(self) -> None:
         if self.on_start_listening is not None:
@@ -38,6 +46,15 @@ class UiController:
     def on_interrupt(self) -> None:
         self.pipeline.interrupt()
 
+    def on_voice_change(self, voice_name: str) -> None:
+        self.selected_voice = voice_name
+        if self.on_voice_selected is None:
+            return
+        for voice in self.voices:
+            if voice.name == voice_name:
+                self.on_voice_selected(voice)
+                return
+
     def handle_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
         if event_type == "state":
@@ -53,23 +70,51 @@ def run_app(
     *,
     on_start_listening: Callable[[], None] | None = None,
     on_stop_listening: Callable[[], None] | None = None,
+    voices: list[VoiceInfo] | None = None,
+    selected_voice: str = "",
+    on_voice_selected: Callable[[VoiceInfo], None] | None = None,
 ) -> None:
-    if tk is None or scrolledtext is None:
+    if tk is None or scrolledtext is None or ttk is None:
         raise RuntimeError("Tkinter is required to run the desktop UI")
 
+    voice_list = list(voices or [])
     controller = UiController(
         pipeline=pipeline,
         on_start_listening=on_start_listening,
         on_stop_listening=on_stop_listening,
+        on_voice_selected=on_voice_selected,
+        voices=voice_list,
+        selected_voice=selected_voice,
     )
     root = tk.Tk()
     root.title("Voice")
-    root.geometry("520x640")
+    root.geometry("520x680")
 
     status_var = tk.StringVar(value=controller.status)
     tk.Label(root, textvariable=status_var, font=("Helvetica", 16)).pack(pady=8)
 
-    transcript = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=28)
+    voice_row = tk.Frame(root)
+    voice_row.pack(fill=tk.X, padx=12, pady=4)
+    tk.Label(voice_row, text="Voice").pack(side=tk.LEFT)
+    voice_names = [voice.name for voice in voice_list] or ["(no .onnx voices found)"]
+    voice_var = tk.StringVar(
+        value=controller.selected_voice if controller.selected_voice in voice_names else voice_names[0]
+    )
+    voice_menu = ttk.Combobox(
+        voice_row,
+        textvariable=voice_var,
+        values=voice_names,
+        state="readonly" if voice_list else "disabled",
+        width=36,
+    )
+    voice_menu.pack(side=tk.LEFT, padx=8)
+
+    def on_voice_picked(_event: object | None = None) -> None:
+        controller.on_voice_change(voice_var.get())
+
+    voice_menu.bind("<<ComboboxSelected>>", on_voice_picked)
+
+    transcript = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=26)
     transcript.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
 
     def refresh() -> None:

@@ -21,7 +21,9 @@ stt:
 tts:
   piper_bin: piper
   voice_path: models/en_US-lessac-medium.onnx
+  voices_dir: models
   sample_rate: 22050
+  length_scale: 1.0
 vad:
   threshold: 0.5
   min_speech_ms: 250
@@ -34,3 +36,5 @@ vad:
     assert cfg.llm.model == "qwen3-8b"
     assert cfg.stt.model_path.endswith("ggml-large-v3-turbo.bin")
     assert cfg.tts.sample_rate == 22050
+    assert cfg.tts.voices_dir == "models"
+    assert cfg.tts.length_scale == 1.0
