@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import importlib
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -17,6 +15,7 @@ from voice.pipeline import VoicePipeline
 from voice.session import ConversationSession
 from voice.stt import SttEngine
 from voice.tts import TtsEngine
+from voice.ui import run_app
 from voice.vad import VadEngine, create_default_vad
 
 
@@ -142,15 +141,8 @@ def main(argv: list[str] | None = None) -> None:
     pipeline = build_pipeline(config, config_path.parent)
 
     if not args.cli:
-        try:
-            ui: Any = importlib.import_module("voice.ui")
-        except ModuleNotFoundError as exc:
-            if exc.name != "voice.ui":
-                raise
-            print("Desktop UI arrives in Task 7; falling back to --cli mode.")
-        else:
-            ui.run_app(pipeline)
-            return
+        run_app(pipeline)
+        return
 
     run_cli(
         pipeline,
