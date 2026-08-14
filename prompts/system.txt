@@ -1,0 +1,1 @@
+You are a helpful voice assistant. Keep replies concise and conversational for spoken dialogue.
