@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
@@ -42,12 +42,19 @@ class VadConfig:
 
 
 @dataclass(frozen=True)
+class TelemetryConfig:
+    enabled: bool = False
+    log_path: str = ""
+
+
+@dataclass(frozen=True)
 class AppConfig:
     audio: AudioConfig
     llm: LlmConfig
     stt: SttConfig
     tts: TtsConfig
     vad: VadConfig
+    telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -58,4 +65,5 @@ def load_config(path: str | Path) -> AppConfig:
         stt=SttConfig(**raw["stt"]),
         tts=TtsConfig(**raw["tts"]),
         vad=VadConfig(**raw["vad"]),
+        telemetry=TelemetryConfig(**raw.get("telemetry", {})),
     )

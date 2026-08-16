@@ -12,6 +12,7 @@ from voice.audio_io import AudioHub
 from voice.chunker import PhraseChunker
 from voice.config import AppConfig, load_config
 from voice.llm import LlmClient
+from voice.metrics import MetricsSink
 from voice.pipeline import VoicePipeline
 from voice.session import ConversationSession
 from voice.stt import SttEngine
@@ -41,6 +42,11 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         length_scale=config.tts.length_scale,
     )
     system_prompt_path = config_dir / config.llm.system_prompt_path
+    telemetry_log_path = (
+        _resolve_path(config_dir, config.telemetry.log_path)
+        if config.telemetry.log_path
+        else None
+    )
     return VoicePipeline(
         session=ConversationSession(),
         llm=LlmClient(
@@ -52,6 +58,10 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         chunker=PhraseChunker(),
         audio=audio,
         system_prompt=system_prompt_path.read_text().strip(),
+        metrics=MetricsSink(
+            enabled=config.telemetry.enabled,
+            log_path=telemetry_log_path,
+        ),
     )
 
 
@@ -111,11 +121,13 @@ def run_listen_loop(
                 continue
 
             if len(utterance) >= speech_frames_needed:
+                pipeline.metrics.mark("vad_end")
                 samples = np.concatenate(utterance)
                 pcm16 = (
                     np.clip(samples, -1.0, 1.0) * np.iinfo(np.int16).max
                 ).astype("<i2").tobytes()
-                transcript = stt.transcribe(pcm16, config.audio.sample_rate)
+                with pipeline.metrics.span("stt"):
+                    transcript = stt.transcribe(pcm16, config.audio.sample_rate)
                 if transcript:
                     print(f"You: {transcript}")
                     pending_turns.append(

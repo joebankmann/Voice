@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import Any
 
 from voice.chunker import PhraseChunker
+from voice.metrics import MetricsSink
 from voice.session import (
     ConversationSession,
     SessionEvent,
@@ -28,6 +29,7 @@ class VoicePipeline:
         chunker: PhraseChunker,
         audio: Any | None = None,
         system_prompt: str = "",
+        metrics: MetricsSink | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -35,9 +37,11 @@ class VoicePipeline:
         self.chunker = chunker
         self.audio = audio
         self.system_prompt = system_prompt
+        self.metrics = metrics or MetricsSink()
         self._listeners: list[PipelineListener] = []
         self._interrupted = threading.Event()
         self._started = False
+        self._tts_audio_marked = False
 
     def add_listener(self, listener: PipelineListener) -> None:
         self._listeners.append(listener)
@@ -99,6 +103,8 @@ class VoicePipeline:
         self._interrupted.clear()
         self.chunker.flush()
         tokens: list[str] = []
+        llm_token_marked = False
+        self._tts_audio_marked = False
 
         try:
             for token in self.llm.stream_chat(
@@ -107,6 +113,9 @@ class VoicePipeline:
             ):
                 if self._interrupted.is_set():
                     break
+                if not llm_token_marked:
+                    self.metrics.mark("llm_first_token")
+                    llm_token_marked = True
                 tokens.append(token)
                 partial = "".join(tokens)
                 self._emit({"type": "assistant_partial", "text": partial})
@@ -138,13 +147,21 @@ class VoicePipeline:
     def _speak(self, text: str) -> None:
         speak = getattr(self.tts, "speak", None)
         if callable(speak):
+            self._mark_tts_first_audio()
             speak(text)
             return
 
         audio = self.tts.synthesize(text)
         if self.audio is None:
             raise RuntimeError("AudioHub is required for synthesized TTS playback")
+        self._mark_tts_first_audio()
         self.audio.play(audio, sample_rate=self.tts.sample_rate)
+
+    def _mark_tts_first_audio(self) -> None:
+        if self._tts_audio_marked:
+            return
+        self.metrics.mark("tts_first_audio")
+        self._tts_audio_marked = True
 
     def _stop_speech(self) -> None:
         stop = getattr(self.tts, "stop", None)

@@ -11,6 +11,7 @@ from voice.config import (
     TtsConfig,
     VadConfig,
 )
+from voice.metrics import MetricsSink
 
 
 class FakeAudio:
@@ -35,6 +36,7 @@ class FakeAudio:
 class FakePipeline:
     def __init__(self):
         self.audio = FakeAudio()
+        self.metrics = MetricsSink(enabled=True)
         self._interrupt = threading.Event()
         self.interrupted_during_turn = False
 
@@ -76,3 +78,6 @@ def test_cli_keeps_listening_while_turn_runs():
     run_cli(pipeline, config=config, stt=FakeStt(), vad=FakeVad())
 
     assert pipeline.interrupted_during_turn is True
+    event_names = [event["name"] for event in pipeline.metrics.events()]
+    assert "vad_end" in event_names
+    assert "stt" in event_names

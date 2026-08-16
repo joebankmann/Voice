@@ -1,6 +1,7 @@
 import threading
 
 from voice.chunker import PhraseChunker
+from voice.metrics import MetricsSink
 from voice.pipeline import VoicePipeline
 from voice.session import ConversationSession, SessionState
 
@@ -68,6 +69,25 @@ def test_completed_turn_returns_to_listening_and_emits_state():
     assert reply
     assert session.state == SessionState.LISTENING
     assert states[-1] == "LISTENING"
+
+
+def test_completed_turn_marks_first_llm_token_and_tts_audio():
+    session = ConversationSession()
+    session.force_state(SessionState.LISTENING)
+    metrics = MetricsSink(enabled=True)
+    pipeline = VoicePipeline(
+        session=session,
+        llm=FakeLlm(),
+        tts=FakeTts(),
+        chunker=PhraseChunker(),
+        metrics=metrics,
+    )
+
+    pipeline.run_turn("Hello")
+
+    event_names = [event["name"] for event in metrics.events()]
+    assert event_names.count("llm_first_token") == 1
+    assert event_names.count("tts_first_audio") == 1
 
 
 def test_barge_in_interrupts_slow_stream_running_on_worker_thread():

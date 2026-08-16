@@ -27,6 +27,9 @@ tts:
 vad:
   threshold: 0.5
   min_speech_ms: 250
+telemetry:
+  enabled: true
+  log_path: logs/latency.jsonl
 """.strip()
     )
     cfg = load_config(cfg_path)
@@ -38,3 +41,5 @@ vad:
     assert cfg.tts.sample_rate == 22050
     assert cfg.tts.voices_dir == "models"
     assert cfg.tts.length_scale == 1.0
+    assert cfg.telemetry.enabled is True
+    assert cfg.telemetry.log_path == "logs/latency.jsonl"
