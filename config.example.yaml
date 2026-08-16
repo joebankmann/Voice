@@ -22,6 +22,9 @@ tts:
   voice_path: models/en_US-lessac-medium.onnx
   voices_dir: models
   sample_rate: 22050
+  # Preload F5 on Start by synthesizing and discarding a short phrase.
+  # Set false for Piper-only setups where warmup is unnecessary.
+  warmup_on_start: true
   length_scale: 1.0
 vad:
   threshold: 0.5

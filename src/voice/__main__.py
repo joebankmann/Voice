@@ -62,6 +62,7 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
             enabled=config.telemetry.enabled,
             log_path=telemetry_log_path,
         ),
+        warmup_tts=config.tts.warmup_on_start,
     )
 
 

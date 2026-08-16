@@ -38,6 +38,7 @@ class TtsConfig:
     voice_path: str
     sample_rate: int = 22_050
     voices_dir: str = "models"
+    warmup_on_start: bool = True
     length_scale: float = 1.0
 
 

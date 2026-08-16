@@ -86,6 +86,10 @@ python3.11 -m voice --cli
 Both entry points read `config.yaml` by default. Use `--config path/to.yaml`
 to select another configuration.
 
+With `tts.warmup_on_start: true`, Start synthesizes and discards a short phrase
+so F5 is ready for the first reply. Set it to `false` for Piper-only setups
+where warmup is unnecessary.
+
 ## Customize voices
 
 Assistant speech uses local **Piper** voices. You can change the voice in three

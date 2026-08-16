@@ -41,5 +41,6 @@ telemetry:
     assert cfg.tts.sample_rate == 22050
     assert cfg.tts.voices_dir == "models"
     assert cfg.tts.length_scale == 1.0
+    assert cfg.tts.warmup_on_start is True
     assert cfg.telemetry.enabled is True
     assert cfg.telemetry.log_path == "logs/latency.jsonl"

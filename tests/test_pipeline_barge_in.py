@@ -33,6 +33,32 @@ class FakeTts:
         self.stopped = True
 
 
+class WarmupTts(FakeTts):
+    def __init__(self):
+        super().__init__()
+        self.synthesized = []
+
+    def synthesize(self, text: str):
+        self.synthesized.append(text)
+        return b"discarded"
+
+
+def test_start_warms_tts_once_without_playback():
+    tts = WarmupTts()
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=FakeLlm(),
+        tts=tts,
+        chunker=PhraseChunker(),
+        warmup_tts=True,
+    )
+
+    pipeline.start()
+    pipeline.start()
+
+    assert tts.synthesized == ["Ready."]
+
+
 def test_barge_in_stops_playback_and_cancels_llm():
     session = ConversationSession()
     session.force_state(SessionState.THINKING_SPEAKING)

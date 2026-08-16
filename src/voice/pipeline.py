@@ -30,6 +30,7 @@ class VoicePipeline:
         audio: Any | None = None,
         system_prompt: str = "",
         metrics: MetricsSink | None = None,
+        warmup_tts: bool = False,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -38,6 +39,7 @@ class VoicePipeline:
         self.audio = audio
         self.system_prompt = system_prompt
         self.metrics = metrics or MetricsSink()
+        self.warmup_tts = warmup_tts
         self._listeners: list[PipelineListener] = []
         self._interrupted = threading.Event()
         self._started = False
@@ -61,6 +63,8 @@ class VoicePipeline:
     def start(self) -> None:
         if self._started:
             return
+        if self.warmup_tts:
+            self.tts.synthesize("Ready.")
         if self.audio is not None:
             self.audio.start()
         self._started = True
