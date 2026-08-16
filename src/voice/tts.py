@@ -67,6 +67,9 @@ class TtsEngine:
         self.apply_voice_info(matched, length_scale=length_scale)
         return matched
 
+    def warmup(self) -> None:
+        """Piper is process-based, so startup warmup has nothing to retain."""
+
     def synthesize(self, text: str) -> bytes:
         command = [
             self._piper_bin,

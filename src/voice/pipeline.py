@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Callable
 from typing import Any
@@ -15,6 +16,7 @@ from voice.session import (
 
 PipelineEvent = dict[str, Any]
 PipelineListener = Callable[[PipelineEvent], None]
+logger = logging.getLogger(__name__)
 
 
 class VoicePipeline:
@@ -64,7 +66,14 @@ class VoicePipeline:
         if self._started:
             return
         if self.warmup_tts:
-            self.tts.synthesize("Ready.")
+            try:
+                warmup = getattr(self.tts, "warmup", None)
+                if callable(warmup):
+                    warmup()
+                else:
+                    self.tts.synthesize("Ready.")
+            except Exception:
+                logger.exception("TTS warmup failed; continuing startup")
         if self.audio is not None:
             self.audio.start()
         self._started = True

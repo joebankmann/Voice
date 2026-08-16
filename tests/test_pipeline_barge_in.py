@@ -4,6 +4,7 @@ from voice.chunker import PhraseChunker
 from voice.metrics import MetricsSink
 from voice.pipeline import VoicePipeline
 from voice.session import ConversationSession, SessionState
+from voice.tts import TtsEngine
 
 
 class FakeLlm:
@@ -57,6 +58,109 @@ def test_start_warms_tts_once_without_playback():
     pipeline.start()
 
     assert tts.synthesized == ["Ready."]
+
+
+def test_start_warms_mocked_f5_once():
+    class MockF5Tts:
+        def __init__(self):
+            self.synthesized = []
+
+        def warmup(self):
+            self.synthesize("Ready.")
+
+        def synthesize(self, text):
+            self.synthesized.append(text)
+            return b"pcm"
+
+    tts = MockF5Tts()
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=FakeLlm(),
+        tts=tts,
+        chunker=PhraseChunker(),
+        warmup_tts=True,
+    )
+
+    pipeline.start()
+    pipeline.start()
+
+    assert tts.synthesized == ["Ready."]
+
+
+def test_start_skips_piper_synthesis_during_warmup():
+    calls = []
+    tts = TtsEngine(
+        "piper",
+        "voice.onnx",
+        sample_rate=22050,
+        runner=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=FakeLlm(),
+        tts=tts,
+        chunker=PhraseChunker(),
+        warmup_tts=True,
+    )
+
+    pipeline.start()
+
+    assert calls == []
+    assert pipeline.session.state == SessionState.LISTENING
+
+
+def test_start_hybrid_warmup_falls_back_to_piper():
+    class MockHybridTts:
+        def __init__(self):
+            self.f5_calls = 0
+            self.piper_calls = 0
+
+        def warmup(self):
+            try:
+                self._synthesize_f5()
+            except RuntimeError:
+                self._synthesize_piper()
+
+        def _synthesize_f5(self):
+            self.f5_calls += 1
+            raise RuntimeError("f5 down")
+
+        def _synthesize_piper(self):
+            self.piper_calls += 1
+            return b"piper"
+
+    tts = MockHybridTts()
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=FakeLlm(),
+        tts=tts,
+        chunker=PhraseChunker(),
+        warmup_tts=True,
+    )
+
+    pipeline.start()
+
+    assert tts.f5_calls == 1
+    assert tts.piper_calls == 1
+    assert pipeline.session.state == SessionState.LISTENING
+
+
+def test_start_continues_when_tts_warmup_fails():
+    class BrokenWarmupTts(FakeTts):
+        def warmup(self):
+            raise RuntimeError("all tts backends down")
+
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=FakeLlm(),
+        tts=BrokenWarmupTts(),
+        chunker=PhraseChunker(),
+        warmup_tts=True,
+    )
+
+    pipeline.start()
+
+    assert pipeline.session.state == SessionState.LISTENING
 
 
 def test_barge_in_stops_playback_and_cancels_llm():
