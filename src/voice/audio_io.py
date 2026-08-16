@@ -25,31 +25,37 @@ class AudioHub:
     ) -> None:
         self.sample_rate = sample_rate
         self.frame_samples = frame_samples
+        self._input_stream_factory = input_stream_factory
+        self._output_stream_factory = output_stream_factory
         self._mic_frames: queue.Queue[np.ndarray] = queue.Queue(maxsize=32)
         self._playback: list[np.ndarray] = []
         self._current: np.ndarray | None = None
         self._current_offset = 0
         self._playback_lock = threading.Lock()
-        self._input_stream = input_stream_factory(
-            samplerate=sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=frame_samples,
-            callback=self._on_input,
-        )
-        self._output_stream = output_stream_factory(
-            samplerate=sample_rate,
-            channels=1,
-            dtype="float32",
-            blocksize=frame_samples,
-            callback=self._on_output,
-        )
+        self._input_stream: Any | None = None
+        self._output_stream: Any | None = None
+        self._running = False
+        self.on_first_playback: Callable[[], None] | None = None
+        self._first_playback_armed = False
+        self._first_playback_fired = False
+
+    def arm_first_playback(self) -> None:
+        """Ready to emit on_first_playback once for the next audible output."""
+        self._first_playback_armed = True
+        self._first_playback_fired = False
 
     def start(self) -> None:
+        if self._running:
+            return
+        self._drain_mic_queue()
+        self._open_streams()
+        assert self._input_stream is not None
+        assert self._output_stream is not None
         self._input_stream.start()
         self._output_stream.start()
+        self._running = True
 
-    def read_frame(self, timeout: float | None = None) -> np.ndarray:
+    def read_frame(self, timeout: float | None = 0.2) -> np.ndarray:
         return self._mic_frames.get(timeout=timeout)
 
     def mic_frames(self) -> Iterator[np.ndarray]:
@@ -91,10 +97,28 @@ class AudioHub:
 
     def close(self) -> None:
         self.stop_playback()
-        self._input_stream.stop()
-        self._output_stream.stop()
-        self._input_stream.close()
-        self._output_stream.close()
+        if self._input_stream is not None:
+            try:
+                self._input_stream.stop()
+            except Exception:
+                pass
+            try:
+                self._input_stream.close()
+            except Exception:
+                pass
+            self._input_stream = None
+        if self._output_stream is not None:
+            try:
+                self._output_stream.stop()
+            except Exception:
+                pass
+            try:
+                self._output_stream.close()
+            except Exception:
+                pass
+            self._output_stream = None
+        self._running = False
+        self._drain_mic_queue()
 
     def __enter__(self) -> AudioHub:
         self.start()
@@ -102,6 +126,31 @@ class AudioHub:
 
     def __exit__(self, *_: object) -> None:
         self.close()
+
+    def _open_streams(self) -> None:
+        if self._input_stream is not None or self._output_stream is not None:
+            self.close()
+        self._input_stream = self._input_stream_factory(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=self.frame_samples,
+            callback=self._on_input,
+        )
+        self._output_stream = self._output_stream_factory(
+            samplerate=self.sample_rate,
+            channels=1,
+            dtype="float32",
+            blocksize=self.frame_samples,
+            callback=self._on_output,
+        )
+
+    def _drain_mic_queue(self) -> None:
+        while True:
+            try:
+                self._mic_frames.get_nowait()
+            except queue.Empty:
+                break
 
     def _on_input(
         self,
@@ -150,3 +199,12 @@ class AudioHub:
                 if self._current_offset == self._current.size:
                     self._current = None
                     self._current_offset = 0
+        if (
+            written > 0
+            and self._first_playback_armed
+            and not self._first_playback_fired
+            and self.on_first_playback is not None
+        ):
+            self._first_playback_fired = True
+            self._first_playback_armed = False
+            self.on_first_playback()

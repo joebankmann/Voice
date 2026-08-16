@@ -157,10 +157,16 @@ def test_start_continues_when_tts_warmup_fails():
         chunker=PhraseChunker(),
         warmup_tts=True,
     )
+    events = []
+    pipeline.add_listener(events.append)
 
     pipeline.start()
 
     assert pipeline.session.state == SessionState.LISTENING
+    assert any(
+        event.get("type") == "error" and "TTS error: all tts backends down" in event.get("text", "")
+        for event in events
+    )
 
 
 def test_barge_in_stops_playback_and_cancels_llm():

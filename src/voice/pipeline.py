@@ -75,6 +75,7 @@ class VoicePipeline:
     def start(self) -> None:
         if self._started:
             return
+        self._interrupted.clear()
         if self.warmup_tts:
             try:
                 warmup = getattr(self.tts, "warmup", None)
@@ -82,9 +83,11 @@ class VoicePipeline:
                     warmup()
                 else:
                     self.tts.synthesize("Ready.")
-            except Exception:
+            except Exception as error:
                 logger.exception("TTS warmup failed; continuing startup")
+                self.emit_error("TTS", error)
         if self.audio is not None:
+            self.audio.on_first_playback = self._mark_tts_first_audio
             self.audio.start()
         self._started = True
         self.session.force_state(SessionState.LISTENING)
@@ -128,6 +131,10 @@ class VoicePipeline:
         tokens: list[str] = []
         llm_token_marked = False
         self._tts_audio_marked = False
+        if self.audio is not None:
+            arm = getattr(self.audio, "arm_first_playback", None)
+            if callable(arm):
+                arm()
 
         try:
             for token in self.llm.stream_chat(
@@ -174,15 +181,19 @@ class VoicePipeline:
         try:
             speak = getattr(self.tts, "speak", None)
             if callable(speak):
-                self._mark_tts_first_audio()
                 speak(text)
+                # Speak-owned playback has no AudioHub callback; mark handoff.
+                if self.audio is None:
+                    self._mark_tts_first_audio()
                 return
 
             audio = self.tts.synthesize(text)
             if self.audio is None:
                 raise RuntimeError("AudioHub is required for synthesized TTS playback")
-            self._mark_tts_first_audio()
             self.audio.play(audio, sample_rate=self.tts.sample_rate)
+            # If AudioHub cannot callback (tests / no stream), mark enqueue.
+            if not getattr(self.audio, "on_first_playback", None):
+                self._mark_tts_first_audio()
         except Exception as error:
             if self._interrupted.is_set():
                 raise

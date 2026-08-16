@@ -26,7 +26,7 @@ class FakeAudio:
             ]
         )
 
-    def read_frame(self):
+    def read_frame(self, timeout=None):
         try:
             return next(self._frames)
         except StopIteration:
@@ -142,3 +142,44 @@ def test_cli_reports_stt_error_and_keeps_listening():
 
     assert stt.calls == 2
     assert pipeline.errors == ["STT error: decoder unavailable"]
+
+
+def test_listen_loop_thread_reports_stt_start_failure_without_starting_listen():
+    from voice.__main__ import ListenLoopThread
+
+    class ErrorPipeline(FakePipeline):
+        def __init__(self):
+            super().__init__()
+            self.errors = []
+            self.started = False
+
+        def emit_error(self, stage, error):
+            self.errors.append(f"{stage} error: {error}")
+
+        def start(self):
+            self.started = True
+
+    class BrokenStartStt(FakeStt):
+        def start(self):
+            raise RuntimeError("whisper-server missing")
+
+        def stop(self):
+            self.stopped = True
+
+    pipeline = ErrorPipeline()
+    stt = BrokenStartStt()
+    config = AppConfig(
+        audio=AudioConfig(sample_rate=1, end_of_turn_silence_ms=1000),
+        llm=LlmConfig("", "", 0.0, ""),
+        stt=SttConfig("", ""),
+        tts=TtsConfig("", ""),
+        vad=VadConfig(threshold=0.5, min_speech_ms=1000),
+    )
+    loop = ListenLoopThread(pipeline, config=config, stt=stt, vad=FakeVad())
+
+    loop.start()
+
+    assert pipeline.errors == ["STT error: whisper-server missing"]
+    assert pipeline.started is False
+    assert loop.thread is None
+    assert getattr(stt, "stopped", False) is True

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import queue
 import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -14,9 +15,10 @@ from voice.config import AppConfig, load_config
 from voice.llm import LlmClient
 from voice.metrics import MetricsSink
 from voice.pipeline import VoicePipeline
+from voice.prompting import build_system_prompt
 from voice.session import ConversationSession
 from voice.stt import SttBackend, build_stt
-from voice.tts import TtsEngine
+from voice.tts_factory import create_tts_engine
 from voice.ui import run_app
 from voice.vad import VadEngine, create_default_vad
 from voice.voices import discover_voices, resolve_voice
@@ -29,19 +31,21 @@ def _resolve_path(config_dir: Path, value: str) -> Path:
 
 def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
     audio = AudioHub(sample_rate=config.audio.sample_rate)
-    voice_path = _resolve_path(config_dir, config.tts.voice_path)
-    voices_dir = _resolve_path(config_dir, config.tts.voices_dir)
-    voices = discover_voices(voices_dir, default_sample_rate=config.tts.sample_rate)
-    matched = resolve_voice(voices, voice_path)
-    sample_rate = matched.sample_rate if matched is not None else config.tts.sample_rate
-    model_path = matched.model_path if matched is not None else voice_path
-    tts = TtsEngine(
-        config.tts.piper_bin,
-        str(model_path),
-        sample_rate=sample_rate,
-        length_scale=config.tts.length_scale,
+    voices = discover_voices(
+        _resolve_path(config_dir, config.tts.voices_dir),
+        clones_dir=_resolve_path(config_dir, config.tts.clones_dir),
+        default_sample_rate=config.tts.sample_rate,
     )
-    system_prompt_path = config_dir / config.llm.system_prompt_path
+    selected = resolve_voice(voices, config.tts.voice_path)
+    if selected is None and config.tts.clone_ref_wav:
+        selected = resolve_voice(voices, Path(config.tts.clone_ref_wav).parent.name)
+    tts = create_tts_engine(config, selected=selected, config_dir=config_dir)
+    system_prompt_path = _resolve_path(config_dir, config.llm.system_prompt_path)
+    world_context_path = _resolve_path(config_dir, config.llm.world_context_path)
+    system_prompt = build_system_prompt(
+        system_prompt_path,
+        world_context_path=world_context_path,
+    )
     telemetry_log_path = (
         _resolve_path(config_dir, config.telemetry.log_path)
         if config.telemetry.log_path
@@ -57,7 +61,7 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         tts=tts,
         chunker=PhraseChunker(),
         audio=audio,
-        system_prompt=system_prompt_path.read_text().strip(),
+        system_prompt=system_prompt,
         metrics=MetricsSink(
             enabled=config.telemetry.enabled,
             log_path=telemetry_log_path,
@@ -110,7 +114,10 @@ def run_listen_loop(
                 if reply:
                     print(f"Assistant: {reply}")
 
-            frame = audio.read_frame()
+            try:
+                frame = audio.read_frame(timeout=0.2)
+            except queue.Empty:
+                continue
             if vad.is_speech(frame):
                 if not utterance:
                     pipeline.handle_speech_start()
@@ -195,9 +202,25 @@ class ListenLoopThread:
     def start(self) -> None:
         if self.thread is not None and self.thread.is_alive():
             return
-        self.stop_event.clear()
-        self.stt.start()
-        self.pipeline.start()
+        self.stop_event = threading.Event()
+        try:
+            self.stt.start()
+        except Exception as error:
+            self.pipeline.emit_error("STT", error)
+            try:
+                self.stt.stop()
+            except Exception:
+                pass
+            return
+        try:
+            self.pipeline.start()
+        except Exception as error:
+            self.pipeline.emit_error("Pipeline", error)
+            try:
+                self.stt.stop()
+            except Exception:
+                pass
+            return
         self.thread = threading.Thread(
             target=run_listen_loop,
             kwargs={
@@ -215,7 +238,8 @@ class ListenLoopThread:
     def stop(self) -> None:
         self.stop_event.set()
         if self.thread is not None:
-            self.thread.join(timeout=0.5)
+            self.thread.join(timeout=2.0)
+            self.thread = None
         self.pipeline.stop()
         self.stt.stop()
 
@@ -253,17 +277,23 @@ def main(argv: list[str] | None = None) -> None:
             stt=stt,
             vad=vad,
         )
-        voices_dir = _resolve_path(config_path.parent, config.tts.voices_dir)
         voices = discover_voices(
-            voices_dir,
+            _resolve_path(config_path.parent, config.tts.voices_dir),
+            clones_dir=_resolve_path(config_path.parent, config.tts.clones_dir),
             default_sample_rate=config.tts.sample_rate,
         )
+        selected_name = ""
+        matched = resolve_voice(voices, Path(pipeline.tts.voice_path))
+        if matched is not None:
+            selected_name = matched.name
+        elif voices:
+            selected_name = voices[0].name
         run_app(
             pipeline,
             on_start_listening=listen_loop.start,
             on_stop_listening=listen_loop.stop,
             voices=voices,
-            selected_voice=Path(pipeline.tts.voice_path).stem,
+            selected_voice=selected_name,
             on_voice_selected=lambda voice: pipeline.tts.apply_voice_info(
                 voice,
                 length_scale=config.tts.length_scale,
