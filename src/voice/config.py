@@ -24,6 +24,12 @@ class LlmConfig:
 class SttConfig:
     whisper_bin: str
     model_path: str
+    mode: str = "resident"
+    whisper_server_bin: str = "whisper-server"
+    server_host: str = "127.0.0.1"
+    server_port: int = 8178
+    inference_path: str = "/inference"
+    manage_server: bool = True
 
 
 @dataclass(frozen=True)

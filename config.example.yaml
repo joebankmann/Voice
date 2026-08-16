@@ -7,8 +7,16 @@ llm:
   temperature: 0.7
   system_prompt_path: prompts/system.txt
 stt:
+  # resident starts whisper-server with the model loaded once; use cli to
+  # retain the cold per-turn whisper-cli fallback.
+  mode: resident
   whisper_bin: whisper-cli
   model_path: models/ggml-large-v3-turbo.bin
+  whisper_server_bin: whisper-server
+  server_host: 127.0.0.1
+  server_port: 8178
+  inference_path: /inference
+  manage_server: true
 tts:
   piper_bin: piper
   voice_path: models/en_US-lessac-medium.onnx

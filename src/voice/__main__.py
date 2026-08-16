@@ -15,7 +15,7 @@ from voice.llm import LlmClient
 from voice.metrics import MetricsSink
 from voice.pipeline import VoicePipeline
 from voice.session import ConversationSession
-from voice.stt import SttEngine
+from voice.stt import SttBackend, build_stt
 from voice.tts import TtsEngine
 from voice.ui import run_app
 from voice.vad import VadEngine, create_default_vad
@@ -69,7 +69,7 @@ def run_listen_loop(
     pipeline: VoicePipeline,
     *,
     config: AppConfig,
-    stt: SttEngine,
+    stt: SttBackend,
     vad: VadEngine,
     stop_event: threading.Event,
 ) -> None:
@@ -145,10 +145,11 @@ def run_cli(
     pipeline: VoicePipeline,
     *,
     config: AppConfig,
-    stt: SttEngine,
+    stt: SttBackend,
     vad: VadEngine,
 ) -> None:
     stop_event = threading.Event()
+    stt.start()
     pipeline.start()
     print("Listening. Press Ctrl-C to stop.")
     try:
@@ -164,6 +165,7 @@ def run_cli(
     finally:
         stop_event.set()
         pipeline.stop()
+        stt.stop()
 
 
 class ListenLoopThread:
@@ -172,7 +174,7 @@ class ListenLoopThread:
         pipeline: VoicePipeline,
         *,
         config: AppConfig,
-        stt: SttEngine,
+        stt: SttBackend,
         vad: VadEngine,
     ) -> None:
         self.pipeline = pipeline
@@ -186,6 +188,7 @@ class ListenLoopThread:
         if self.thread is not None and self.thread.is_alive():
             return
         self.stop_event.clear()
+        self.stt.start()
         self.pipeline.start()
         self.thread = threading.Thread(
             target=run_listen_loop,
@@ -206,6 +209,7 @@ class ListenLoopThread:
         if self.thread is not None:
             self.thread.join(timeout=0.5)
         self.pipeline.stop()
+        self.stt.stop()
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -228,7 +232,7 @@ def main(argv: list[str] | None = None) -> None:
     config_path = Path(args.config).resolve()
     config = load_config(config_path)
     pipeline = build_pipeline(config, config_path.parent)
-    stt = SttEngine(config.stt.whisper_bin, config.stt.model_path)
+    stt = build_stt(config.stt, config_dir=config_path.parent)
     vad = create_default_vad(
         threshold=config.vad.threshold,
         sample_rate=config.audio.sample_rate,

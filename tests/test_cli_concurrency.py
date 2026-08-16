@@ -56,6 +56,12 @@ class FakePipeline:
 
 
 class FakeStt:
+    def start(self):
+        pass
+
+    def stop(self):
+        pass
+
     def transcribe(self, pcm16, sample_rate):
         return "hello"
 
