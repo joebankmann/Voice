@@ -59,6 +59,8 @@ class UiController:
         event_type = event.get("type")
         if event_type == "state":
             self.status = str(event.get("state", self.status))
+        elif event_type == "error":
+            self.status = str(event.get("text", "Pipeline error"))
         elif event_type == "user_transcript":
             self.transcript_lines.append(f"You: {event['text']}")
         elif event_type == "assistant_final":

@@ -19,6 +19,10 @@ PipelineListener = Callable[[PipelineEvent], None]
 logger = logging.getLogger(__name__)
 
 
+class _ReportedPipelineError(Exception):
+    """Mark an exception whose user-facing error event was already emitted."""
+
+
 class VoicePipeline:
     """Coordinate conversation state, streamed generation, and speech output."""
 
@@ -61,6 +65,12 @@ class VoicePipeline:
 
     def on_assistant_final(self, listener: Callable[[str], None]) -> None:
         self._add_typed_listener("assistant_final", "text", listener)
+
+    def emit_error(self, stage: str, error: BaseException | str) -> None:
+        detail = str(error).strip()
+        if not detail and isinstance(error, BaseException):
+            detail = type(error).__name__
+        self._emit({"type": "error", "text": f"{stage} error: {detail}"})
 
     def start(self) -> None:
         if self._started:
@@ -137,9 +147,12 @@ class VoicePipeline:
             if not self._interrupted.is_set():
                 for phrase in self.chunker.flush():
                     self._speak(phrase)
-        except Exception:
+        except _ReportedPipelineError:
+            return ""
+        except Exception as error:
             if not self._interrupted.is_set():
-                raise
+                self._recover_from_error("LLM", error)
+                return ""
 
         assistant_text = "".join(tokens).strip()
         if assistant_text:
@@ -158,17 +171,27 @@ class VoicePipeline:
             self.llm.cancel()
 
     def _speak(self, text: str) -> None:
-        speak = getattr(self.tts, "speak", None)
-        if callable(speak):
-            self._mark_tts_first_audio()
-            speak(text)
-            return
+        try:
+            speak = getattr(self.tts, "speak", None)
+            if callable(speak):
+                self._mark_tts_first_audio()
+                speak(text)
+                return
 
-        audio = self.tts.synthesize(text)
-        if self.audio is None:
-            raise RuntimeError("AudioHub is required for synthesized TTS playback")
-        self._mark_tts_first_audio()
-        self.audio.play(audio, sample_rate=self.tts.sample_rate)
+            audio = self.tts.synthesize(text)
+            if self.audio is None:
+                raise RuntimeError("AudioHub is required for synthesized TTS playback")
+            self._mark_tts_first_audio()
+            self.audio.play(audio, sample_rate=self.tts.sample_rate)
+        except Exception as error:
+            if self._interrupted.is_set():
+                raise
+            self._recover_from_error("TTS", error)
+            raise _ReportedPipelineError from error
+
+    def _recover_from_error(self, stage: str, error: BaseException) -> None:
+        self.session.force_state(SessionState.LISTENING)
+        self.emit_error(stage, error)
 
     def _mark_tts_first_audio(self) -> None:
         if self._tts_audio_marked:

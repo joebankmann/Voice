@@ -220,6 +220,47 @@ def test_completed_turn_marks_first_llm_token_and_tts_audio():
     assert event_names.count("tts_first_audio") == 1
 
 
+def test_llm_failure_emits_error_and_recovers_listening_state():
+    class BrokenLlm(FakeLlm):
+        def stream_chat(self, messages, system_prompt):
+            raise RuntimeError("model unavailable")
+            yield
+
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=BrokenLlm(),
+        tts=FakeTts(),
+        chunker=PhraseChunker(),
+    )
+    events = []
+    pipeline.add_listener(events.append)
+    pipeline.start()
+
+    assert pipeline.run_turn("Hello") == ""
+    assert pipeline.session.state == SessionState.LISTENING
+    assert events[-1] == {"type": "error", "text": "LLM error: model unavailable"}
+
+
+def test_tts_failure_emits_error_and_recovers_listening_state():
+    class BrokenTts(FakeTts):
+        def speak(self, text: str):
+            raise RuntimeError("speaker unavailable")
+
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=FakeLlm(),
+        tts=BrokenTts(),
+        chunker=PhraseChunker(),
+    )
+    events = []
+    pipeline.add_listener(events.append)
+    pipeline.start()
+
+    assert pipeline.run_turn("Hello") == ""
+    assert pipeline.session.state == SessionState.LISTENING
+    assert events[-1] == {"type": "error", "text": "TTS error: speaker unavailable"}
+
+
 def test_barge_in_interrupts_slow_stream_running_on_worker_thread():
     stream_blocked = threading.Event()
     release_stream = threading.Event()

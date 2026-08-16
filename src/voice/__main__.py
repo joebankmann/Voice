@@ -102,7 +102,11 @@ def run_listen_loop(
     try:
         while not stop_event.is_set():
             while pending_turns and pending_turns[0].done():
-                reply = pending_turns.popleft().result()
+                try:
+                    reply = pending_turns.popleft().result()
+                except Exception as error:
+                    pipeline.emit_error("Pipeline", error)
+                    continue
                 if reply:
                     print(f"Assistant: {reply}")
 
@@ -127,13 +131,16 @@ def run_listen_loop(
                 pcm16 = (
                     np.clip(samples, -1.0, 1.0) * np.iinfo(np.int16).max
                 ).astype("<i2").tobytes()
-                with pipeline.metrics.span("stt"):
-                    transcript = stt.transcribe(pcm16, config.audio.sample_rate)
-                if transcript:
-                    print(f"You: {transcript}")
-                    pending_turns.append(
-                        turn_executor.submit(pipeline.run_turn, transcript)
-                    )
+                try:
+                    with pipeline.metrics.span("stt"):
+                        transcript = stt.transcribe(pcm16, config.audio.sample_rate)
+                    if transcript:
+                        print(f"You: {transcript}")
+                        pending_turns.append(
+                            turn_executor.submit(pipeline.run_turn, transcript)
+                        )
+                except Exception as error:
+                    pipeline.emit_error("STT", error)
             utterance = []
             silence_frames = 0
     finally:

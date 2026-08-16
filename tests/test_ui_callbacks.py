@@ -60,6 +60,22 @@ def test_controller_appends_transcript_events():
     assert controller.transcript_lines == ["You: hi", "Assistant: hello"]
 
 
+def test_controller_shows_error_without_disabling_stop_start():
+    listening_actions = []
+    controller = UiController(
+        pipeline=FakePipeline(),
+        on_start_listening=lambda: listening_actions.append("start"),
+        on_stop_listening=lambda: listening_actions.append("stop"),
+    )
+
+    controller.handle_event({"type": "error", "text": "STT error: microphone lost"})
+    controller.on_stop()
+    controller.on_start()
+
+    assert controller.status == "STT error: microphone lost"
+    assert listening_actions == ["stop", "start"]
+
+
 def test_controller_voice_change_invokes_callback():
     selected: list[str] = []
     voices = [
