@@ -163,6 +163,24 @@ def test_interrupt_during_tool_execution_skips_continuation():
     assert pipeline.session.state == SessionState.LISTENING
 
 
+def test_interrupt_before_continuation_speak_drops_queued_phrase():
+    llm = RecordingLlm([["Should not speak."]])
+    tts = RecordingTts()
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=llm,
+        tts=tts,
+        chunker=PhraseChunker(),
+        tools=_pipeline_tools(EchoTool()),
+    )
+    pipeline._interrupted.set()
+
+    continuation = pipeline._stream_continuation()
+
+    assert continuation == ""
+    assert tts.spoken == []
+
+
 def _app_config(*, tools_enabled: bool, memory_enabled: bool = False) -> AppConfig:
     return AppConfig(
         audio=AudioConfig(sample_rate=16_000, end_of_turn_silence_ms=600),

@@ -373,6 +373,8 @@ class VoicePipeline:
             self.llm.cancel()
 
     def _speak(self, text: str) -> None:
+        if self._interrupted.is_set():
+            return
         text = strip_tool_markers(text).strip()
         if not text:
             return
