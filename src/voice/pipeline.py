@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from voice.chunker import PhraseChunker
-from voice.config import MemoryConfig, ToolsConfig
+from voice.config import AgentsConfig, MemoryConfig, ToolsConfig
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.memory.intent import extract_remember_intent
 from voice.metrics import MetricsSink
@@ -43,6 +43,12 @@ class PipelineTools:
     runner: ToolRunner
 
 
+@dataclass(frozen=True)
+class PipelineAgents:
+    config: AgentsConfig
+    helper: Any
+
+
 class _ReportedPipelineError(Exception):
     """Mark an exception whose user-facing error event was already emitted."""
 
@@ -63,6 +69,7 @@ class VoicePipeline:
         warmup_tts: bool = False,
         memory: PipelineMemory | None = None,
         tools: PipelineTools | None = None,
+        agents: PipelineAgents | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -75,6 +82,7 @@ class VoicePipeline:
         self.warmup_tts = warmup_tts
         self.memory = memory
         self.tools = tools
+        self.agents = agents
         self._listeners: list[PipelineListener] = []
         self._interrupted = threading.Event()
         self._started = False
@@ -125,6 +133,7 @@ class VoicePipeline:
     def stop(self) -> None:
         self._interrupted.set()
         self.llm.cancel()
+        self._cancel_helper()
         self._stop_speech()
         if self.audio is not None and self._started:
             self.audio.close()
@@ -137,6 +146,7 @@ class VoicePipeline:
 
     def handle_speech_start(self) -> None:
         self._interrupted.set()
+        self._cancel_helper()
         for event in self.session.on_user_speech_start():
             self._apply_session_event(event)
         self._emit_state()
@@ -244,6 +254,8 @@ class VoicePipeline:
         if not self._interrupted.is_set():
             continuation_text = self._run_tool_continuation(assistant_text)
         if not self._interrupted.is_set():
+            self._summarize_evicted_history()
+        if not self._interrupted.is_set():
             for event in self.session.on_assistant_audio_done():
                 self._apply_session_event(event)
             self._emit_state()
@@ -256,6 +268,51 @@ class VoicePipeline:
             if part
         )
         return spoken_text
+
+    def _summarize_evicted_history(self) -> None:
+        dropped = self.session.take_evicted()
+        agents = self.agents
+        memory = self.memory
+        if (
+            agents is None
+            or not agents.config.enabled
+            or memory is None
+            or not memory.config.enabled
+            or not dropped
+        ):
+            return
+        reset = getattr(agents.helper, "begin_turn", None)
+        if callable(reset):
+            reset()
+        started_at = time.perf_counter()
+        note: str | None = None
+        try:
+            note = agents.helper.summarize_dropped(dropped)
+        except Exception as error:
+            self.emit_error("Agent", error)
+        duration_ms = (time.perf_counter() - started_at) * 1000.0
+        if self._interrupted.is_set() or not note:
+            self.metrics.mark(
+                "agent_summarize",
+                ok=False,
+                duration_ms=duration_ms,
+                chars=0,
+            )
+            return
+        memory.episodic.add(note)
+        self.metrics.mark(
+            "agent_summarize",
+            ok=True,
+            duration_ms=duration_ms,
+            chars=len(note),
+        )
+
+    def _cancel_helper(self) -> None:
+        if self.agents is None:
+            return
+        cancel = getattr(self.agents.helper, "cancel", None)
+        if callable(cancel):
+            cancel()
 
     def _run_tool_continuation(self, assistant_text: str) -> str:
         tools = self.tools

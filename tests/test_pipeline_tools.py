@@ -5,6 +5,7 @@ import voice.__main__ as voice_main
 from voice.chunker import PhraseChunker
 from voice.config import (
     AppConfig,
+    AgentsConfig,
     AudioConfig,
     LlmConfig,
     MemoryConfig,
@@ -196,6 +197,7 @@ def _app_config(*, tools_enabled: bool, memory_enabled: bool = False) -> AppConf
         vad=VadConfig(threshold=0.5, min_speech_ms=100),
         memory=MemoryConfig(enabled=memory_enabled),
         tools=ToolsConfig(enabled=tools_enabled),
+        agents=AgentsConfig(enabled=False),
     )
 
 

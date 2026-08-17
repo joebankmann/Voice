@@ -9,13 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
+from voice.agents import HelperAgent
 from voice.audio_io import AudioHub
 from voice.chunker import PhraseChunker
 from voice.config import AppConfig, load_config
 from voice.llm import LlmClient
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.metrics import MetricsSink
-from voice.pipeline import PipelineMemory, PipelineTools, VoicePipeline
+from voice.pipeline import PipelineAgents, PipelineMemory, PipelineTools, VoicePipeline
 from voice.prompting import append_tools_section, build_system_prompt
 from voice.session import ConversationSession
 from voice.stt import SttBackend, build_stt
@@ -82,13 +83,30 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         if config.telemetry.log_path
         else None
     )
+    llm = LlmClient(
+        config.llm.base_url,
+        config.llm.model,
+        config.llm.temperature,
+    )
+    agents = None
+    if config.agents.enabled:
+        helper_llm = llm
+        if config.agents.helper_base_url:
+            helper_llm = LlmClient(
+                config.agents.helper_base_url,
+                config.agents.helper_model or config.llm.model,
+                config.llm.temperature,
+            )
+        agents = PipelineAgents(
+            config=config.agents,
+            helper=HelperAgent(
+                helper_llm,
+                timeout_ms=config.agents.timeout_ms,
+            ),
+        )
     return VoicePipeline(
         session=ConversationSession(max_history_messages=max_history_messages),
-        llm=LlmClient(
-            config.llm.base_url,
-            config.llm.model,
-            config.llm.temperature,
-        ),
+        llm=llm,
         tts=tts,
         chunker=PhraseChunker(),
         audio=audio,
@@ -100,6 +118,7 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         warmup_tts=config.tts.warmup_on_start,
         memory=memory,
         tools=tools,
+        agents=agents,
     )
 
 
