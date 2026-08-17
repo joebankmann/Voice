@@ -55,3 +55,8 @@ memory:
   max_history_messages: 24
   max_episodic_hits: 3
   max_inject_chars: 1200
+tools:
+  # Tools remain disabled when this section is missing.
+  enabled: false
+  timeout_ms: 2000
+  allow_online: false

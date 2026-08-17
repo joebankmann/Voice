@@ -77,6 +77,13 @@ class MemoryConfig:
 
 
 @dataclass(frozen=True)
+class ToolsConfig:
+    enabled: bool = False
+    timeout_ms: int = 2000
+    allow_online: bool = False
+
+
+@dataclass(frozen=True)
 class AppConfig:
     audio: AudioConfig
     llm: LlmConfig
@@ -85,6 +92,7 @@ class AppConfig:
     vad: VadConfig
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
+    tools: ToolsConfig = field(default_factory=ToolsConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -97,4 +105,5 @@ def load_config(path: str | Path) -> AppConfig:
         vad=VadConfig(**raw["vad"]),
         telemetry=TelemetryConfig(**raw.get("telemetry", {})),
         memory=MemoryConfig(**raw.get("memory", {})),
+        tools=ToolsConfig(**raw.get("tools", {})),
     )
