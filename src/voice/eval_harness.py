@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import argparse
+import json
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -92,3 +95,57 @@ def check_latency_budgets(
                 LatencyViolation(name=name, duration_ms=duration_ms, max_ms=max_ms)
             )
     return violations
+
+
+def write_eval_snapshot(
+    jsonl_path: str | Path,
+    *,
+    cases_path: str | Path,
+    events: list[dict[str, Any]] | None = None,
+    clock: datetime | None = None,
+) -> dict[str, Any]:
+    """Append one sanitize + latency snapshot to a JSONL log."""
+    results = run_sanitize_eval(load_sanitize_cases(cases_path))
+    violations = check_latency_budgets(events or [])
+    stamp = clock or datetime.now(timezone.utc)
+    snapshot = {
+        "ts": stamp.isoformat(),
+        "cases": str(cases_path),
+        "sanitize_ok": all(result.ok for result in results),
+        "sanitize_total": len(results),
+        "sanitize_failed": sum(1 for result in results if not result.ok),
+        "latency_violations": [
+            {
+                "name": item.name,
+                "duration_ms": item.duration_ms,
+                "max_ms": item.max_ms,
+            }
+            for item in violations
+        ],
+    }
+    path = Path(jsonl_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(snapshot) + "\n")
+    return snapshot
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Append a local eval snapshot (sanitize fixtures + optional latency)."
+    )
+    parser.add_argument("--cases", required=True, help="YAML sanitize fixture path")
+    parser.add_argument("--jsonl", required=True, help="Append-only JSONL output path")
+    args = parser.parse_args(argv)
+    snapshot = write_eval_snapshot(args.jsonl, cases_path=args.cases)
+    status = "ok" if snapshot["sanitize_ok"] else "failed"
+    print(
+        f"eval snapshot {status}: "
+        f"{snapshot['sanitize_total'] - snapshot['sanitize_failed']}"
+        f"/{snapshot['sanitize_total']} sanitize"
+    )
+    return 0 if snapshot["sanitize_ok"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

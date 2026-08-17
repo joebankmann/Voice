@@ -16,7 +16,13 @@ from voice.config import AppConfig, load_config
 from voice.llm import LlmClient
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.metrics import MetricsSink
-from voice.pipeline import PipelineAgents, PipelineMemory, PipelineTools, VoicePipeline
+from voice.pipeline import (
+    PipelineAgents,
+    PipelineFuture,
+    PipelineMemory,
+    PipelineTools,
+    VoicePipeline,
+)
 from voice.prompting import append_personality, append_tools_section, build_system_prompt
 from voice.profiles import discover_profile_packs, resolve_profile_pack
 from voice.session import ConversationSession
@@ -130,6 +136,10 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         memory=memory,
         tools=tools,
         agents=agents,
+        future=PipelineFuture(
+            config=config.future,
+            inbox_dir=str(_resolve_path(config_dir, config.future.inbox_dir)),
+        ),
     )
 
 

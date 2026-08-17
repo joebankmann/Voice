@@ -20,6 +20,7 @@ tts = ["f5-tts-mlx", "mlx", "soundfile"]
 
 [project.scripts]
 voice = "voice.__main__:main"
+voice-eval = "voice.eval_harness:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -11,6 +11,12 @@ SUMMARIZE_SYSTEM_PROMPT = (
 )
 
 
+ACTIONS_SYSTEM_PROMPT = (
+    "From the dropped conversation turns, extract at most one short action item "
+    "the assistant should remember. No markdown. If none, reply with NONE."
+)
+
+
 class HelperAgent:
     """Off-path specialist: summarize evicted history. Never on the TTS hot path."""
 
@@ -32,6 +38,19 @@ class HelperAgent:
             cancel()
 
     def summarize_dropped(self, messages: list[dict[str, str]]) -> str | None:
+        return self._complete_note(messages, SUMMARIZE_SYSTEM_PROMPT)
+
+    def extract_actions(self, messages: list[dict[str, str]]) -> str | None:
+        return self._complete_note(messages, ACTIONS_SYSTEM_PROMPT)
+
+    def begin_turn(self) -> None:
+        self._cancel_event.clear()
+
+    def _complete_note(
+        self,
+        messages: list[dict[str, str]],
+        system_prompt: str,
+    ) -> str | None:
         if not messages or self._cancel_event.is_set():
             return None
         transcript = "\n".join(
@@ -45,7 +64,7 @@ class HelperAgent:
             future = pool.submit(
                 self._llm.complete,
                 [{"role": "user", "content": transcript}],
-                SUMMARIZE_SYSTEM_PROMPT,
+                system_prompt,
             )
             try:
                 raw = future.result(timeout=self._timeout_s)
@@ -60,6 +79,3 @@ class HelperAgent:
         if not note or note.upper() == "NONE":
             return None
         return note.splitlines()[0].strip()
-
-    def begin_turn(self) -> None:
-        self._cancel_event.clear()

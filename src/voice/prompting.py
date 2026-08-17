@@ -54,6 +54,7 @@ def format_memory_inject_block(
     *,
     preferences: dict[str, str] | None = None,
     episodic_notes: list[str] | None = None,
+    extra_sections: list[str] | None = None,
     max_inject_chars: int = 1200,
 ) -> str:
     """Build the truncated preference/episodic block (may be empty)."""
@@ -71,6 +72,8 @@ def format_memory_inject_block(
         memory_sections.append(
             "Relevant remembered notes:\n" + "\n".join(note_lines)
         )
+    if extra_sections:
+        memory_sections.extend(section.strip() for section in extra_sections if section.strip())
     if not memory_sections:
         return ""
     return "\n\n".join(memory_sections)[:max_inject_chars]
@@ -81,6 +84,7 @@ def append_memory_inject(
     *,
     preferences: dict[str, str] | None = None,
     episodic_notes: list[str] | None = None,
+    extra_sections: list[str] | None = None,
     max_inject_chars: int = 1200,
 ) -> tuple[str, int]:
     """Append a budgeted memory block to an immutable base prompt.
@@ -90,6 +94,7 @@ def append_memory_inject(
     block = format_memory_inject_block(
         preferences=preferences,
         episodic_notes=episodic_notes,
+        extra_sections=extra_sections,
         max_inject_chars=max_inject_chars,
     )
     if not block:
@@ -121,3 +126,14 @@ def append_personality(base_prompt: str, personality_text: str) -> str:
     if not text:
         return base_prompt
     return base_prompt + "\n\nPersonality:\n" + text
+
+
+def adapt_personality(base_prompt: str, preferences: dict[str, str]) -> str:
+    """Nudge tone from stored prefs without a trait engine."""
+    prefer = (preferences.get("prefer") or preferences.get("tone") or "").strip()
+    if not prefer:
+        return base_prompt
+    return (
+        base_prompt
+        + f"\n\nAdapt to the user's stored preference: {prefer}."
+    )

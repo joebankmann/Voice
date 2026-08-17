@@ -2,6 +2,8 @@ from datetime import date
 from pathlib import Path
 
 from voice.prompting import (
+    adapt_personality,
+    append_memory_inject,
     append_personality,
     append_tools_section,
     build_system_prompt,
@@ -105,3 +107,19 @@ def test_append_personality_adds_block_when_nonempty():
     prompt = append_personality("Base.", "Be warm.")
     assert prompt == "Base.\n\nPersonality:\nBe warm."
     assert append_personality("Base.", "  ") == "Base."
+
+
+def test_adapt_personality_mentions_stored_preference():
+    prompt = adapt_personality("Base.\n\nPersonality:\nBe warm.", {"prefer": "short answers"})
+    assert "Personality:\nBe warm." in prompt
+    assert "Adapt to the user's stored preference: short answers." in prompt
+    assert adapt_personality("Base.", {}) == "Base."
+
+
+def test_append_memory_inject_includes_extra_sections():
+    prompt, chars = append_memory_inject(
+        "Base.",
+        extra_sections=["User affect hint: frustrated."],
+    )
+    assert "User affect hint: frustrated." in prompt
+    assert chars > 0

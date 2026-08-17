@@ -224,3 +224,8 @@ def test_build_pipeline_omits_agents_when_disabled(tmp_path: Path, monkeypatch):
     )
     pipeline = voice_main.build_pipeline(config, tmp_path)
     assert pipeline.agents is None
+    assert pipeline.future is not None
+    assert pipeline.future.config.affect is False
+    assert pipeline.future.config.inbox is False
+    assert pipeline.future.config.adaptive_personality is False
+    assert Path(pipeline.future.inbox_dir) == tmp_path / "data" / "inbox"

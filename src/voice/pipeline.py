@@ -7,12 +7,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from voice.affect import estimate_affect
 from voice.chunker import PhraseChunker
-from voice.config import AgentsConfig, MemoryConfig, ToolsConfig
+from voice.config import AgentsConfig, FutureConfig, MemoryConfig, ToolsConfig
+from voice.inbox import consume_inbox
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.memory.intent import extract_remember_intent
 from voice.metrics import MetricsSink
-from voice.prompting import append_memory_inject
+from voice.prompting import adapt_personality, append_memory_inject
 from voice.session import (
     ConversationSession,
     SessionEvent,
@@ -49,6 +51,12 @@ class PipelineAgents:
     helper: Any
 
 
+@dataclass(frozen=True)
+class PipelineFuture:
+    config: FutureConfig
+    inbox_dir: str
+
+
 class _ReportedPipelineError(Exception):
     """Mark an exception whose user-facing error event was already emitted."""
 
@@ -70,6 +78,7 @@ class VoicePipeline:
         memory: PipelineMemory | None = None,
         tools: PipelineTools | None = None,
         agents: PipelineAgents | None = None,
+        future: PipelineFuture | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -83,6 +92,7 @@ class VoicePipeline:
         self.memory = memory
         self.tools = tools
         self.agents = agents
+        self.future = future
         self._listeners: list[PipelineListener] = []
         self._interrupted = threading.Event()
         self._started = False
@@ -171,26 +181,51 @@ class VoicePipeline:
 
     def _prepare_memory(self, transcript: str) -> None:
         memory = self.memory
-        if memory is None or not memory.config.enabled:
+        if memory is not None and memory.config.enabled:
+            memory_write = extract_remember_intent(transcript)
+            if memory_write is not None:
+                if memory_write.kind == "preference" and memory_write.key is not None:
+                    memory.preferences.set(memory_write.key, memory_write.value)
+                elif memory_write.kind == "episodic":
+                    memory.episodic.add(memory_write.value)
+
+        preferences: dict[str, str] = {}
+        episodic_notes: list[str] = []
+        max_inject = 1200
+        if memory is not None and memory.config.enabled:
+            preferences = memory.preferences.get_all()
+            episodic_notes = memory.episodic.retrieve(
+                transcript,
+                limit=memory.config.max_episodic_hits,
+            )
+            max_inject = memory.config.max_inject_chars
+
+        extra_sections: list[str] = []
+        future = self.future
+        if future is not None and future.config.affect:
+            label = estimate_affect(transcript)
+            if label:
+                extra_sections.append(f"User affect hint: {label}.")
+                self.metrics.mark("affect", label=label)
+        if future is not None and future.config.inbox:
+            for note in consume_inbox(future.inbox_dir):
+                extra_sections.append(f"Shared note: {note}")
+
+        prompt = self.base_system_prompt
+        if future is not None and future.config.adaptive_personality:
+            prompt = adapt_personality(prompt, preferences)
+
+        if (
+            memory is None or not memory.config.enabled
+        ) and not extra_sections and prompt == self.base_system_prompt:
             return
 
-        memory_write = extract_remember_intent(transcript)
-        if memory_write is not None:
-            if memory_write.kind == "preference" and memory_write.key is not None:
-                memory.preferences.set(memory_write.key, memory_write.value)
-            elif memory_write.kind == "episodic":
-                memory.episodic.add(memory_write.value)
-
-        preferences = memory.preferences.get_all()
-        episodic_notes = memory.episodic.retrieve(
-            transcript,
-            limit=memory.config.max_episodic_hits,
-        )
         self.system_prompt, injected_chars = append_memory_inject(
-            self.base_system_prompt,
-            preferences=preferences,
-            episodic_notes=episodic_notes,
-            max_inject_chars=memory.config.max_inject_chars,
+            prompt,
+            preferences=preferences or None,
+            episodic_notes=episodic_notes or None,
+            extra_sections=extra_sections or None,
+            max_inject_chars=max_inject,
         )
         self.metrics.mark(
             "memory_inject",
@@ -291,20 +326,50 @@ class VoicePipeline:
         except Exception as error:
             self.emit_error("Agent", error)
         duration_ms = (time.perf_counter() - started_at) * 1000.0
-        if self._interrupted.is_set() or not note:
+        if not self._interrupted.is_set() and note:
+            memory.episodic.add(note)
+            self.metrics.mark(
+                "agent_summarize",
+                ok=True,
+                duration_ms=duration_ms,
+                chars=len(note),
+            )
+        else:
             self.metrics.mark(
                 "agent_summarize",
                 ok=False,
                 duration_ms=duration_ms,
                 chars=0,
             )
+        if self._interrupted.is_set() or not agents.config.collaborative:
             return
-        memory.episodic.add(note)
+        reset = getattr(agents.helper, "begin_turn", None)
+        if callable(reset):
+            reset()
+        extract = getattr(agents.helper, "extract_actions", None)
+        if not callable(extract):
+            return
+        started_at = time.perf_counter()
+        action: str | None = None
+        try:
+            action = extract(dropped)
+        except Exception as error:
+            self.emit_error("Agent", error)
+        action_ms = (time.perf_counter() - started_at) * 1000.0
+        if self._interrupted.is_set() or not action:
+            self.metrics.mark(
+                "agent_actions",
+                ok=False,
+                duration_ms=action_ms,
+                chars=0,
+            )
+            return
+        memory.episodic.add(action)
         self.metrics.mark(
-            "agent_summarize",
+            "agent_actions",
             ok=True,
-            duration_ms=duration_ms,
-            chars=len(note),
+            duration_ms=action_ms,
+            chars=len(action),
         )
 
     def _cancel_helper(self) -> None:

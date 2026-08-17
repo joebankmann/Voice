@@ -89,12 +89,21 @@ class AgentsConfig:
     helper_base_url: str = ""
     helper_model: str = ""
     timeout_ms: int = 4000
+    collaborative: bool = False
 
 
 @dataclass(frozen=True)
 class ProfilesConfig:
     packs_dir: str = "profiles"
     active: str = ""
+
+
+@dataclass(frozen=True)
+class FutureConfig:
+    affect: bool = False
+    inbox: bool = False
+    inbox_dir: str = "data/inbox"
+    adaptive_personality: bool = False
 
 
 @dataclass(frozen=True)
@@ -109,6 +118,7 @@ class AppConfig:
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agents: AgentsConfig = field(default_factory=AgentsConfig)
     profiles: ProfilesConfig = field(default_factory=ProfilesConfig)
+    future: FutureConfig = field(default_factory=FutureConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -124,4 +134,5 @@ def load_config(path: str | Path) -> AppConfig:
         tools=ToolsConfig(**raw.get("tools", {})),
         agents=AgentsConfig(**raw.get("agents", {})),
         profiles=ProfilesConfig(**raw.get("profiles", {})),
+        future=FutureConfig(**raw.get("future", {})),
     )

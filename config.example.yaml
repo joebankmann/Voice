@@ -67,7 +67,14 @@ agents:
   helper_base_url: ""
   helper_model: ""
   timeout_ms: 4000
+  collaborative: false
 profiles:
   # Drop-in packs under packs_dir/<id>/manifest.yaml. Empty active = none.
   packs_dir: profiles
   active: ""
+future:
+  # All default off. Lexicon affect, text inbox, and preference-adaptive tone.
+  affect: false
+  inbox: false
+  inbox_dir: data/inbox
+  adaptive_personality: false

@@ -1,10 +1,14 @@
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from voice.eval_harness import (
     FakeClock,
     check_latency_budgets,
     load_sanitize_cases,
+    main,
     run_sanitize_eval,
+    write_eval_snapshot,
 )
 from voice.metrics import MetricsSink
 
@@ -37,3 +41,23 @@ def test_fake_clock_latency_budgets_fail_when_over_ceiling():
     assert len(violations) == 1
     assert violations[0].name == "stt"
     assert violations[0].duration_ms >= 2000
+
+
+def test_write_eval_snapshot_appends_jsonl(tmp_path: Path):
+    path = tmp_path / "eval.jsonl"
+    stamp = datetime(2026, 8, 17, tzinfo=timezone.utc)
+    first = write_eval_snapshot(path, cases_path=CASES, clock=stamp)
+    write_eval_snapshot(path, cases_path=CASES, clock=stamp)
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    payload = json.loads(lines[0])
+    assert payload["sanitize_ok"] is True
+    assert payload["sanitize_total"] > 0
+    assert payload["latency_violations"] == []
+    assert first["ts"] == "2026-08-17T00:00:00+00:00"
+
+
+def test_eval_harness_cli_appends_snapshot(tmp_path: Path):
+    path = tmp_path / "eval.jsonl"
+    assert main(["--cases", str(CASES), "--jsonl", str(path)]) == 0
+    assert path.read_text(encoding="utf-8").strip()

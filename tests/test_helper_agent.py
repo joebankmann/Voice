@@ -1,6 +1,6 @@
 import threading
 
-from voice.agents.helper import HelperAgent
+from voice.agents.helper import ACTIONS_SYSTEM_PROMPT, HelperAgent
 
 
 class FakeHelperLlm:
@@ -49,3 +49,17 @@ def test_summarize_skipped_when_already_cancelled():
     agent = HelperAgent(llm, timeout_ms=1000, cancel_event=event)
     assert agent.summarize_dropped([{"role": "user", "content": "x"}]) is None
     assert llm.prompts == []
+
+
+def test_extract_actions_uses_action_prompt_and_first_line():
+    llm = FakeHelperLlm("Call the marina.\nExtra.")
+    agent = HelperAgent(llm, timeout_ms=1000)
+    note = agent.extract_actions([{"role": "user", "content": "need to call the marina"}])
+    assert note == "Call the marina."
+    assert llm.prompts == [ACTIONS_SYSTEM_PROMPT]
+
+
+def test_extract_actions_none_is_skipped():
+    assert HelperAgent(FakeHelperLlm("NONE")).extract_actions(
+        [{"role": "user", "content": "hi"}]
+    ) is None

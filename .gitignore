@@ -2,6 +2,9 @@
 
 data/preferences.yaml
 data/episodic.jsonl
+data/eval.jsonl
+data/inbox/*
+!data/inbox/.gitkeep
 config.yaml
 models/
 *.pyc
