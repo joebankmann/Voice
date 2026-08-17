@@ -2,7 +2,7 @@ import threading
 
 import numpy as np
 
-from voice.__main__ import run_cli
+from voice.__main__ import ListenLoopThread, run_cli
 from voice.config import (
     AppConfig,
     AudioConfig,
@@ -48,6 +48,9 @@ class FakePipeline:
 
     def handle_speech_start(self):
         self._interrupt.set()
+
+    def interrupt(self):
+        self.handle_speech_start()
 
     def run_turn(self, transcript):
         self._interrupt.clear()
@@ -145,8 +148,6 @@ def test_cli_reports_stt_error_and_keeps_listening():
 
 
 def test_listen_loop_thread_reports_stt_start_failure_without_starting_listen():
-    from voice.__main__ import ListenLoopThread
-
     class ErrorPipeline(FakePipeline):
         def __init__(self):
             super().__init__()
@@ -183,3 +184,37 @@ def test_listen_loop_thread_reports_stt_start_failure_without_starting_listen():
     assert pipeline.started is False
     assert loop.thread is None
     assert getattr(stt, "stopped", False) is True
+
+
+def test_listen_loop_thread_stop_interrupts_before_join():
+    calls: list[str] = []
+
+    class OrderPipeline(FakePipeline):
+        def interrupt(self):
+            calls.append("interrupt")
+            self.handle_speech_start()
+
+        def stop(self):
+            calls.append("stop")
+            super().stop()
+
+    class SlowThread:
+        def is_alive(self):
+            return True
+
+        def join(self, timeout=None):
+            calls.append("join")
+
+    pipeline = OrderPipeline()
+    config = AppConfig(
+        audio=AudioConfig(sample_rate=1, end_of_turn_silence_ms=1000),
+        llm=LlmConfig("", "", 0.0, ""),
+        stt=SttConfig("", ""),
+        tts=TtsConfig("", ""),
+        vad=VadConfig(threshold=0.5, min_speech_ms=1000),
+    )
+    loop = ListenLoopThread(pipeline, config=config, stt=FakeStt(), vad=FakeVad())
+    loop.thread = SlowThread()
+    loop.stop()
+
+    assert calls == ["interrupt", "join", "stop"]

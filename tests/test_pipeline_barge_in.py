@@ -301,3 +301,98 @@ def test_barge_in_interrupts_slow_stream_running_on_worker_thread():
     assert not worker.is_alive()
     assert llm.cancelled is True
     assert session.state == SessionState.LISTENING
+    assert all(item.get("role") != "assistant" for item in session.history)
+
+
+def test_speech_start_then_run_turn_still_replies():
+    """Listen loop calls handle_speech_start at utterance start, then run_turn."""
+    session = ConversationSession()
+    session.force_state(SessionState.LISTENING)
+    llm = FakeLlm()
+    pipeline = VoicePipeline(
+        session=session,
+        llm=llm,
+        tts=FakeTts(),
+        chunker=PhraseChunker(),
+    )
+    pipeline.handle_speech_start()
+    reply = pipeline.run_turn("Hello")
+    assert reply
+    assert llm.cancelled is True
+    assert session.state == SessionState.LISTENING
+
+
+def test_speech_start_while_listening_stops_queued_playback():
+    class RecordingAudio:
+        def __init__(self):
+            self.stop_calls = 0
+
+        def stop_playback(self):
+            self.stop_calls += 1
+
+    session = ConversationSession()
+    session.force_state(SessionState.LISTENING)
+    tts = FakeTts()
+    audio = RecordingAudio()
+    pipeline = VoicePipeline(
+        session=session,
+        llm=FakeLlm(),
+        tts=tts,
+        chunker=PhraseChunker(),
+        audio=audio,
+    )
+
+    pipeline.handle_speech_start()
+
+    assert tts.stopped is True
+    assert audio.stop_calls == 1
+    assert session.state == SessionState.LISTENING
+
+
+def test_interrupt_during_synthesize_does_not_enqueue_playback():
+    started = threading.Event()
+    release = threading.Event()
+
+    class BlockingSynth:
+        sample_rate = 16_000
+
+        def synthesize(self, text: str):
+            started.set()
+            release.wait(timeout=1)
+            return b"\x00\x00"
+
+        def stop(self):
+            release.set()
+
+    class RecordingAudio:
+        def __init__(self):
+            self.played: list[bytes] = []
+
+        def stop_playback(self):
+            self.played.clear()
+
+        def play(self, audio, sample_rate=None):
+            self.played.append(audio)
+
+    class PhraseLlm:
+        def stream_chat(self, messages, system_prompt):
+            yield "Hello there."
+
+        def cancel(self):
+            release.set()
+
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=PhraseLlm(),
+        tts=BlockingSynth(),
+        chunker=PhraseChunker(),
+        audio=RecordingAudio(),
+    )
+    worker = threading.Thread(target=pipeline.run_turn, args=("Hello",))
+    worker.start()
+    assert started.wait(timeout=1)
+    pipeline.handle_speech_start()
+    worker.join(timeout=1)
+
+    assert not worker.is_alive()
+    assert pipeline.audio.played == []

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from typing import Any
 
@@ -66,11 +67,22 @@ class HelperAgent:
                 [{"role": "user", "content": transcript}],
                 system_prompt,
             )
+            deadline = time.monotonic() + self._timeout_s
+            raw: Any = None
             try:
-                raw = future.result(timeout=self._timeout_s)
-            except FuturesTimeout:
-                self.cancel()
-                return None
+                while True:
+                    if self._cancel_event.is_set():
+                        self.cancel()
+                        return None
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        self.cancel()
+                        return None
+                    try:
+                        raw = future.result(timeout=min(0.05, remaining))
+                        break
+                    except FuturesTimeout:
+                        continue
             except Exception:
                 return None
         if self._cancel_event.is_set():

@@ -124,3 +124,8 @@ def test_barge_in_during_memory_prep_skips_llm_stream(tmp_path: Path):
     assert llm.stream_calls == 0
     assert preferences.get_all() == {"prefer": "short answers"}
     assert pipeline.session.state == SessionState.LISTENING
+
+    pipeline._prepare_memory = original_prepare  # type: ignore[method-assign]
+    follow_up = pipeline.run_turn("How should you respond?")
+    assert follow_up
+    assert llm.stream_calls == 1

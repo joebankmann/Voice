@@ -126,6 +126,8 @@ def test_interrupt_during_helper_skips_episodic_write(tmp_path: Path):
     assert helper.cancelled is True
     assert episodic.retrieve("cedar", limit=3) == []
     assert pipeline.session.state == SessionState.LISTENING
+    restored = pipeline.session.take_evicted()
+    assert any("cedar" in item["content"] for item in restored)
 
 
 def test_helper_agent_timeout_path_does_not_write(tmp_path: Path):
@@ -188,6 +190,7 @@ def test_build_pipeline_wires_helper_when_agents_enabled(tmp_path: Path, monkeyp
     assert pipeline.agents is not None
     assert pipeline.agents.config.enabled is True
     assert pipeline.agents.helper._timeout_s == 1.234
+    assert pipeline.agents.helper._llm is not pipeline.llm
 
 
 def test_build_pipeline_omits_agents_when_disabled(tmp_path: Path, monkeypatch):

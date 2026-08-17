@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -153,6 +154,24 @@ def test_runner_refuses_online_and_unknown_tools():
         (calls[0], "Tool online is unavailable while online tools are disabled."),
         (calls[1], "Unknown tool: missing."),
     ]
+
+
+def test_runner_skips_remaining_tools_when_cancelled():
+    cancel = threading.Event()
+    registry = ToolRegistry()
+    registry.register(FakeTool("first", result="one"))
+    registry.register(FakeTool("second", result="two"))
+    runner = ToolRunner(
+        registry,
+        timeout_ms=100,
+        allow_online=False,
+        cancel_event=cancel,
+    )
+    cancel.set()
+    calls = [ToolCall("first", {}), ToolCall("second", {})]
+    results = runner.run_all(calls)
+    assert results[0][1] == "Tool first was cancelled."
+    assert results[1][1] == "Tool second was cancelled."
 
 
 def test_runner_converts_tool_errors_to_safe_results():

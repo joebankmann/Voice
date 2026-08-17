@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -29,6 +30,7 @@ class LocalTimeTool:
 @dataclass(frozen=True)
 class PreferenceSetTool:
     preferences: PreferencesStore | None = None
+    cancel_event: threading.Event | None = None
     name: str = "preference_set"
     description: str = "Save a user preference."
     parameters_schema: dict[str, Any] = field(
@@ -51,6 +53,8 @@ class PreferenceSetTool:
         value = args.get("value")
         if not isinstance(key, str) or not isinstance(value, str):
             return "I couldn't save that preference because its arguments were invalid."
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return "I couldn't save that preference because the turn was interrupted."
         self.preferences.set(key, value)
         return f"Saved preference {key}."
 
@@ -58,6 +62,7 @@ class PreferenceSetTool:
 @dataclass(frozen=True)
 class NoteAddTool:
     episodic: EpisodicStore | None = None
+    cancel_event: threading.Event | None = None
     name: str = "note_add"
     description: str = "Save a note to episodic memory."
     parameters_schema: dict[str, Any] = field(
@@ -76,5 +81,7 @@ class NoteAddTool:
         text = args.get("text")
         if not isinstance(text, str):
             return "I couldn't save that note because its arguments were invalid."
+        if self.cancel_event is not None and self.cancel_event.is_set():
+            return "I couldn't save that note because the turn was interrupted."
         self.episodic.add(text)
         return "Saved note."

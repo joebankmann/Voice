@@ -129,11 +129,17 @@ def append_personality(base_prompt: str, personality_text: str) -> str:
 
 
 def adapt_personality(base_prompt: str, preferences: dict[str, str]) -> str:
-    """Nudge tone from stored prefs without a trait engine."""
+    """Nudge the personality block from stored prefs without a trait engine."""
     prefer = (preferences.get("prefer") or preferences.get("tone") or "").strip()
     if not prefer:
         return base_prompt
-    return (
-        base_prompt
-        + f"\n\nAdapt to the user's stored preference: {prefer}."
-    )
+    line = f"Adapt to the user's stored preference: {prefer}."
+    marker = "\n\nPersonality:\n"
+    if marker in base_prompt:
+        head, rest = base_prompt.split(marker, 1)
+        personality, _, tail = rest.partition("\n\n")
+        block = personality.rstrip() + "\n" + line
+        if tail:
+            return head + marker + block + "\n\n" + tail
+        return head + marker + block
+    return base_prompt + "\n\n" + line

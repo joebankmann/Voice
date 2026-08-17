@@ -20,13 +20,16 @@ class LlmClient:
         self.temperature = temperature
         self._client = httpx.Client(transport=transport, timeout=None)
         self._active: httpx.Response | None = None
+        self._generation = 0
 
     def cancel(self) -> None:
+        self._generation += 1
         if self._active is not None:
             self._active.close()
             self._active = None
 
     def stream_chat(self, messages: list[dict[str, str]], system_prompt: str) -> Iterator[str]:
+        generation = self._generation
         payload: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -39,27 +42,34 @@ class LlmClient:
             json=payload,
             headers={"Accept": "text/event-stream"},
         ) as resp:
+            if generation != self._generation:
+                return
             self._active = resp
-            resp.raise_for_status()
-            for line in resp.iter_lines():
-                if not line:
-                    continue
-                if line.startswith("data: "):
-                    data = line[6:].strip()
-                    if data == "[DONE]":
+            try:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if generation != self._generation:
                         break
-                    obj = json.loads(data)
-                    delta = obj["choices"][0].get("delta", {})
-                    content = delta.get("content")
-                    if content:
-                        yield content
-            self._active = None
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        data = line[6:].strip()
+                        if data == "[DONE]":
+                            break
+                        obj = json.loads(data)
+                        delta = obj["choices"][0].get("delta", {})
+                        content = delta.get("content")
+                        if content:
+                            yield content
+            finally:
+                self._active = None
 
     def complete(
         self,
         messages: list[dict[str, str]],
         system_prompt: str,
     ) -> str:
+        generation = self._generation
         payload: dict[str, Any] = {
             "model": self.model,
             "temperature": self.temperature,
@@ -72,10 +82,17 @@ class LlmClient:
             json=payload,
         )
         response = self._client.send(request, stream=True)
+        if generation != self._generation:
+            response.close()
+            return ""
         self._active = response
         try:
+            if generation != self._generation:
+                return ""
             response.raise_for_status()
             body = response.read()
+            if generation != self._generation:
+                return ""
             obj = json.loads(body)
             return str(obj["choices"][0]["message"]["content"])
         finally:

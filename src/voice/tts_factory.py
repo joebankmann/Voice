@@ -46,6 +46,9 @@ class HybridTtsEngine:
             self.sample_rate = self._fallback.sample_rate
             return self._fallback.synthesize(text)
 
+    def warmup(self) -> None:
+        self.synthesize("Ready.")
+
 
 def create_tts_engine(
     config: AppConfig,

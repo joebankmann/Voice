@@ -38,7 +38,15 @@ class ConversationSession:
         if self.max_history_messages is None or self.max_history_messages <= 0:
             return dropped
         while len(self.history) > self.max_history_messages:
-            dropped.append(self.history.pop(0))
+            if (
+                len(self.history) >= 2
+                and self.history[0].get("role") == "user"
+                and self.history[1].get("role") == "assistant"
+            ):
+                dropped.append(self.history.pop(0))
+                dropped.append(self.history.pop(0))
+            else:
+                dropped.append(self.history.pop(0))
         self._evicted.extend(dropped)
         return dropped
 
@@ -47,11 +55,15 @@ class ConversationSession:
         self._evicted = []
         return dropped
 
+    def restore_evicted(self, messages: list[dict[str, str]]) -> None:
+        if messages:
+            self._evicted = list(messages) + self._evicted
+
     def on_user_speech_start(self) -> list[SessionEvent]:
-        events: list[SessionEvent] = []
-        if self.state == SessionState.THINKING_SPEAKING:
-            events.append(SessionEvent(SessionEventType.STOP_PLAYBACK))
-            events.append(SessionEvent(SessionEventType.CANCEL_GENERATION))
+        events: list[SessionEvent] = [
+            SessionEvent(SessionEventType.STOP_PLAYBACK),
+            SessionEvent(SessionEventType.CANCEL_GENERATION),
+        ]
         self.state = SessionState.LISTENING
         events.append(SessionEvent(SessionEventType.START_LISTENING))
         return events

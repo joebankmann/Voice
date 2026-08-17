@@ -116,6 +116,14 @@ def test_adapt_personality_mentions_stored_preference():
     assert adapt_personality("Base.", {}) == "Base."
 
 
+def test_adapt_personality_folds_into_personality_before_tools():
+    prompt = adapt_personality(
+        "Base.\n\nPersonality:\nBe warm.\n\nTools\ncatalog",
+        {"prefer": "short answers"},
+    )
+    assert prompt.index("Adapt to the user's stored preference") < prompt.index("Tools")
+
+
 def test_append_memory_inject_includes_extra_sections():
     prompt, chars = append_memory_inject(
         "Base.",

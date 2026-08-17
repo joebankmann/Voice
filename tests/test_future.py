@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+import threading
 
 from voice.affect import estimate_affect
 from voice.chunker import PhraseChunker
@@ -196,6 +197,72 @@ def test_collaborative_writes_second_episodic_note(tmp_path: Path):
     assert "Follow up on cedar." in notes
     event = next(item for item in pipeline.metrics.events() if item["name"] == "agent_actions")
     assert event["ok"] is True
+
+
+def test_inbox_survives_barge_in_during_prep(tmp_path: Path):
+    inbox = tmp_path / "inbox"
+    inbox.mkdir()
+    (inbox / "note.txt").write_text("Meet at the marina.")
+    pipeline, llm, _, _, _ = _pipeline(
+        tmp_path,
+        future=PipelineFuture(
+            config=FutureConfig(inbox=True),
+            inbox_dir=str(inbox),
+        ),
+    )
+    original_prepare = pipeline._prepare_memory
+
+    def slow_prepare(transcript: str) -> None:
+        original_prepare(transcript)
+        pipeline.handle_speech_start()
+
+    pipeline._prepare_memory = slow_prepare  # type: ignore[method-assign]
+    assert pipeline.run_turn("hello") == ""
+    assert (inbox / "note.txt").is_file()
+
+    pipeline._prepare_memory = original_prepare  # type: ignore[method-assign]
+    pipeline.run_turn("hello again")
+    assert "Shared note: Meet at the marina." in llm.system_prompts[-1]
+    assert not (inbox / "note.txt").exists()
+
+
+def test_interrupt_during_extract_actions_skips_write(tmp_path: Path):
+    class BlockingHelper(RecordingHelper):
+        def __init__(self):
+            super().__init__()
+            self._block = threading.Event()
+            self._started = threading.Event()
+            self.block_extract = True
+
+        def extract_actions(self, messages):
+            self.action_calls.append(list(messages))
+            if self.block_extract:
+                self._started.set()
+                self._block.wait(timeout=1)
+                if self.cancelled:
+                    return None
+            return self.action
+
+        def cancel(self):
+            self.cancelled = True
+            self._block.set()
+
+    helper = BlockingHelper()
+    pipeline, _, _, episodic, _ = _pipeline(
+        tmp_path,
+        memory_enabled=True,
+        collaborative=True,
+        helper=helper,
+    )
+    pipeline.run_turn("first fact about cedar")
+    worker = threading.Thread(target=pipeline.run_turn, args=("second fact about oak",))
+    worker.start()
+    assert helper._started.wait(timeout=1)
+    pipeline.handle_speech_start()
+    worker.join(timeout=1)
+    assert not worker.is_alive()
+    assert helper.cancelled is True
+    assert "Follow up on cedar." not in episodic.retrieve("cedar", limit=5)
 
 
 def test_collaborative_off_does_not_extract_actions(tmp_path: Path):

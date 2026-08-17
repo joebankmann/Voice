@@ -11,6 +11,15 @@ def test_barge_in_cancels_playback_and_generation():
     assert s.state == SessionState.LISTENING
 
 
+def test_speech_start_while_listening_still_stops_playback():
+    s = ConversationSession()
+    s.force_state(SessionState.LISTENING)
+    events = s.on_user_speech_start()
+    types = [e.type for e in events]
+    assert SessionEventType.STOP_PLAYBACK in types
+    assert s.state == SessionState.LISTENING
+
+
 def test_speech_end_requests_reply():
     s = ConversationSession()
     s.force_state(SessionState.LISTENING)
@@ -30,11 +39,21 @@ def test_history_trim_drops_oldest_when_over_limit():
         ]
     )
     s.append_assistant("5")
-    assert len(s.history) == 4
-    assert s.history[0]["content"] == "2"
+    assert len(s.history) == 3
+    assert s.history[0]["content"] == "3"
     assert s.history[-1]["content"] == "5"
-    assert s.take_evicted() == [{"role": "user", "content": "1"}]
+    assert s.take_evicted() == [
+        {"role": "user", "content": "1"},
+        {"role": "assistant", "content": "2"},
+    ]
     assert s.take_evicted() == []
+
+
+def test_restore_evicted_prepends_dropped_turns():
+    s = ConversationSession(max_history_messages=4)
+    dropped = [{"role": "user", "content": "old"}]
+    s.restore_evicted(dropped)
+    assert s.take_evicted() == dropped
 
 
 def test_history_trim_on_user_speech_end():
@@ -43,9 +62,8 @@ def test_history_trim_on_user_speech_end():
     s.on_user_speech_end("first")
     s.append_assistant("reply")
     s.on_user_speech_end("second")
-    assert len(s.history) == 2
-    assert s.history[0]["content"] == "reply"
-    assert s.history[1]["content"] == "second"
+    assert len(s.history) == 1
+    assert s.history[0]["content"] == "second"
 
 
 def test_max_history_none_means_no_trim():

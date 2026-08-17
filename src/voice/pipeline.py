@@ -97,6 +97,13 @@ class VoicePipeline:
         self._interrupted = threading.Event()
         self._started = False
         self._tts_audio_marked = False
+        if self.tools is not None:
+            bind = getattr(self.tools.runner, "bind_cancel", None)
+            if callable(bind):
+                bind(self._interrupted)
+            for tool in self.tools.registry.tools:
+                if hasattr(tool, "cancel_event"):
+                    object.__setattr__(tool, "cancel_event", self._interrupted)
 
     def add_listener(self, listener: PipelineListener) -> None:
         self._listeners.append(listener)
@@ -162,6 +169,10 @@ class VoicePipeline:
         self._emit_state()
 
     def run_turn(self, transcript: str) -> str:
+        # A new turn starts after utterance-begin barge-in. Clear the flag so
+        # listen-loop speech-start does not skip this reply; keep checking after
+        # prep so barge-in during memory I/O still aborts generation.
+        self._interrupted.clear()
         events = self.session.on_user_speech_end(transcript)
         cleaned_transcript = transcript.strip()
         if cleaned_transcript:
@@ -170,6 +181,9 @@ class VoicePipeline:
         self._emit_state()
 
         # Barge-in during memory I/O must not start a new reply.
+        if self._interrupted.is_set():
+            return ""
+        self._inject_inbox()
         if self._interrupted.is_set():
             return ""
 
@@ -207,9 +221,6 @@ class VoicePipeline:
             if label:
                 extra_sections.append(f"User affect hint: {label}.")
                 self.metrics.mark("affect", label=label)
-        if future is not None and future.config.inbox:
-            for note in consume_inbox(future.inbox_dir):
-                extra_sections.append(f"Shared note: {note}")
 
         prompt = self.base_system_prompt
         if future is not None and future.config.adaptive_personality:
@@ -234,8 +245,25 @@ class VoicePipeline:
             chars=injected_chars,
         )
 
+    def _inject_inbox(self) -> None:
+        future = self.future
+        if future is None or not future.config.inbox:
+            return
+        notes = consume_inbox(future.inbox_dir)
+        if not notes:
+            return
+        extras = [f"Shared note: {note}" for note in notes]
+        max_inject = 1200
+        memory = self.memory
+        if memory is not None and memory.config.enabled:
+            max_inject = memory.config.max_inject_chars
+        self.system_prompt, _chars = append_memory_inject(
+            self.system_prompt,
+            extra_sections=extras,
+            max_inject_chars=max_inject,
+        )
+
     def _stream_reply(self) -> str:
-        self._interrupted.clear()
         self.chunker.flush()
         tokens: list[str] = []
         llm_token_marked = False
@@ -277,7 +305,7 @@ class VoicePipeline:
                 return ""
 
         assistant_text = "".join(tokens).strip()
-        if assistant_text:
+        if assistant_text and not self._interrupted.is_set():
             self.session.append_assistant(assistant_text)
             self._emit(
                 {
@@ -294,6 +322,8 @@ class VoicePipeline:
             for event in self.session.on_assistant_audio_done():
                 self._apply_session_event(event)
             self._emit_state()
+        if self._interrupted.is_set():
+            return ""
         spoken_text = " ".join(
             part
             for part in (
@@ -316,9 +346,16 @@ class VoicePipeline:
             or not dropped
         ):
             return
+        if self._interrupted.is_set():
+            self.session.restore_evicted(dropped)
+            return
         reset = getattr(agents.helper, "begin_turn", None)
         if callable(reset):
             reset()
+        if self._interrupted.is_set():
+            self._cancel_helper()
+            self.session.restore_evicted(dropped)
+            return
         started_at = time.perf_counter()
         note: str | None = None
         try:
@@ -326,8 +363,10 @@ class VoicePipeline:
         except Exception as error:
             self.emit_error("Agent", error)
         duration_ms = (time.perf_counter() - started_at) * 1000.0
+        wrote = False
         if not self._interrupted.is_set() and note:
             memory.episodic.add(note)
+            wrote = True
             self.metrics.mark(
                 "agent_summarize",
                 ok=True,
@@ -341,11 +380,18 @@ class VoicePipeline:
                 duration_ms=duration_ms,
                 chars=0,
             )
-        if self._interrupted.is_set() or not agents.config.collaborative:
+        if self._interrupted.is_set():
+            if not wrote:
+                self.session.restore_evicted(dropped)
+            return
+        if not agents.config.collaborative:
             return
         reset = getattr(agents.helper, "begin_turn", None)
         if callable(reset):
             reset()
+        if self._interrupted.is_set():
+            self._cancel_helper()
+            return
         extract = getattr(agents.helper, "extract_actions", None)
         if not callable(extract):
             return
@@ -396,6 +442,7 @@ class VoicePipeline:
             duration_ms = (time.perf_counter() - started_at) * 1000.0
             ok = not (
                 result.startswith("Unknown tool:")
+                or result.endswith(" was cancelled.")
                 or (result.startswith("Tool ") and (
                     result.endswith(" timed out.")
                     or result.endswith(" failed.")
@@ -412,14 +459,28 @@ class VoicePipeline:
 
         if self._interrupted.is_set():
             return ""
+        kept = [
+            (call, result)
+            for call, result in results
+            if not result.endswith(" was cancelled.")
+        ]
+        if not kept:
+            return ""
         result_message = {
             "role": "user",
             "content": "Tool results:\n"
-            + "\n".join(f"{call.name}: {result}" for call, result in results),
+            + "\n".join(f"{call.name}: {result}" for call, result in kept),
         }
         self.session.history.append(result_message)
         self.session._trim_history()
         if self._interrupted.is_set():
+            if (
+                self.session.history
+                and str(self.session.history[-1].get("content", "")).startswith(
+                    "Tool results:"
+                )
+            ):
+                self.session.history.pop()
             return ""
         return self._stream_continuation()
 
@@ -453,7 +514,7 @@ class VoicePipeline:
             return ""
 
         continuation_text = "".join(tokens).strip()
-        if continuation_text:
+        if continuation_text and not self._interrupted.is_set():
             self.session.append_assistant(continuation_text)
             self._emit(
                 {
@@ -461,6 +522,8 @@ class VoicePipeline:
                     "text": strip_tool_markers(continuation_text).strip(),
                 }
             )
+        if self._interrupted.is_set():
+            return ""
         return continuation_text
 
     @staticmethod
@@ -510,6 +573,8 @@ class VoicePipeline:
                 return
 
             audio = self.tts.synthesize(text)
+            if self._interrupted.is_set():
+                return
             if self.audio is None:
                 raise RuntimeError("AudioHub is required for synthesized TTS playback")
             self.audio.play(audio, sample_rate=self.tts.sample_rate)

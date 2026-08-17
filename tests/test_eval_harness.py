@@ -43,6 +43,19 @@ def test_fake_clock_latency_budgets_fail_when_over_ceiling():
     assert violations[0].duration_ms >= 2000
 
 
+def test_latency_budgets_measure_mark_deltas_from_previous_t():
+    clock = FakeClock()
+    sink = MetricsSink(enabled=True, clock=clock)
+    sink.mark("vad_end")
+    clock.advance(0.2)
+    sink.mark("llm_first_token")
+    clock.advance(2.0)
+    sink.mark("tts_first_audio")
+    violations = check_latency_budgets(sink.events())
+    assert [item.name for item in violations] == ["tts_first_audio"]
+    assert violations[0].duration_ms >= 2000
+
+
 def test_write_eval_snapshot_appends_jsonl(tmp_path: Path):
     path = tmp_path / "eval.jsonl"
     stamp = datetime(2026, 8, 17, tzinfo=timezone.utc)
@@ -61,3 +74,17 @@ def test_eval_harness_cli_appends_snapshot(tmp_path: Path):
     path = tmp_path / "eval.jsonl"
     assert main(["--cases", str(CASES), "--jsonl", str(path)]) == 0
     assert path.read_text(encoding="utf-8").strip()
+
+
+def test_eval_harness_cli_includes_latency_events(tmp_path: Path):
+    events_path = tmp_path / "events.jsonl"
+    events_path.write_text(
+        json.dumps({"name": "stt", "duration_ms": 4000.0}) + "\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "eval.jsonl"
+    assert main(
+        ["--cases", str(CASES), "--jsonl", str(out), "--events", str(events_path)]
+    ) == 0
+    payload = json.loads(out.read_text(encoding="utf-8").splitlines()[0])
+    assert payload["latency_violations"][0]["name"] == "stt"

@@ -17,7 +17,9 @@ from voice.config import (
 from voice.metrics import MetricsSink
 from voice.pipeline import PipelineTools, VoicePipeline
 from voice.session import ConversationSession, SessionState
+from voice.memory import PreferencesStore
 from voice.tools import ToolRegistry, ToolRunner
+from voice.tools.builtins import PreferenceSetTool
 
 
 class RecordingLlm:
@@ -162,6 +164,54 @@ def test_interrupt_during_tool_execution_skips_continuation():
     assert len(llm.calls) == 1
     assert tts.spoken == []
     assert pipeline.session.state == SessionState.LISTENING
+    assert all(
+        "Tool results:" not in item.get("content", "")
+        for item in pipeline.session.history
+    )
+
+
+def test_interrupt_during_preference_tool_does_not_write(tmp_path: Path):
+    started = threading.Event()
+    release = threading.Event()
+    preferences = PreferencesStore(tmp_path / "preferences.yaml")
+
+    class SlowPreference(PreferenceSetTool):
+        def run(self, args: dict[str, object]) -> str:
+            started.set()
+            release.wait(timeout=1)
+            return super().run(args)
+
+    tool = SlowPreference(preferences=preferences)
+    registry = ToolRegistry()
+    registry.register(tool)
+    llm = RecordingLlm(
+        [['<<tool:preference_set|{"key":"tone","value":"brief"}>>'], ["Must not continue."]]
+    )
+    pipeline = VoicePipeline(
+        session=ConversationSession(),
+        llm=llm,
+        tts=RecordingTts(),
+        chunker=PhraseChunker(),
+        tools=PipelineTools(
+            config=ToolsConfig(enabled=True, timeout_ms=2000, allow_online=False),
+            registry=registry,
+            runner=ToolRunner(registry, timeout_ms=2000, allow_online=False),
+        ),
+    )
+    worker = threading.Thread(target=pipeline.run_turn, args=("Save it",))
+    worker.start()
+    assert started.wait(timeout=1)
+    pipeline.handle_speech_start()
+    worker.join(timeout=1)
+    release.set()
+
+    assert not worker.is_alive()
+    assert preferences.get_all() == {}
+    assert len(llm.calls) == 1
+    assert all(
+        "Tool results:" not in item.get("content", "")
+        for item in pipeline.session.history
+    )
 
 
 def test_interrupt_before_continuation_speak_drops_queued_phrase():

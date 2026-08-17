@@ -81,14 +81,25 @@ def check_latency_budgets(
     events: list[dict[str, Any]],
     budgets_ms: dict[str, float] | None = None,
 ) -> list[LatencyViolation]:
-    """Fail spans (or duration_ms marks) that exceed named ceilings."""
+    """Fail spans (or duration_ms marks) that exceed named ceilings.
+
+    Marks without ``duration_ms`` use the delta from the previous event's ``t``.
+    """
     ceilings = budgets_ms or DEFAULT_LATENCY_BUDGETS_MS
     violations: list[LatencyViolation] = []
+    previous_t: float | None = None
     for event in events:
         name = str(event.get("name", ""))
-        if name not in ceilings or "duration_ms" not in event:
+        stamp = event.get("t")
+        duration_ms: float | None = None
+        if "duration_ms" in event:
+            duration_ms = float(event["duration_ms"])
+        elif stamp is not None and previous_t is not None and name in ceilings:
+            duration_ms = (float(stamp) - previous_t) * 1000.0
+        if stamp is not None:
+            previous_t = float(stamp)
+        if name not in ceilings or duration_ms is None:
             continue
-        duration_ms = float(event["duration_ms"])
         max_ms = ceilings[name]
         if duration_ms > max_ms:
             violations.append(
@@ -136,8 +147,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--cases", required=True, help="YAML sanitize fixture path")
     parser.add_argument("--jsonl", required=True, help="Append-only JSONL output path")
+    parser.add_argument(
+        "--events",
+        default="",
+        help="Optional metrics JSONL whose events are checked against latency budgets",
+    )
     args = parser.parse_args(argv)
-    snapshot = write_eval_snapshot(args.jsonl, cases_path=args.cases)
+    events: list[dict[str, Any]] = []
+    if args.events:
+        events_path = Path(args.events)
+        if events_path.is_file():
+            for line in events_path.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                payload = json.loads(line)
+                if isinstance(payload, dict):
+                    events.append(payload)
+    snapshot = write_eval_snapshot(
+        args.jsonl,
+        cases_path=args.cases,
+        events=events or None,
+    )
     status = "ok" if snapshot["sanitize_ok"] else "failed"
     print(
         f"eval snapshot {status}: "

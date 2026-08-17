@@ -107,13 +107,11 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
     )
     agents = None
     if config.agents.enabled:
-        helper_llm = llm
-        if config.agents.helper_base_url:
-            helper_llm = LlmClient(
-                config.agents.helper_base_url,
-                config.agents.helper_model or config.llm.model,
-                config.llm.temperature,
-            )
+        helper_llm = LlmClient(
+            config.agents.helper_base_url or config.llm.base_url,
+            config.agents.helper_model or config.llm.model,
+            config.llm.temperature,
+        )
         agents = PipelineAgents(
             config=config.agents,
             helper=HelperAgent(
@@ -224,6 +222,13 @@ def run_listen_loop(
             utterance = []
             silence_frames = 0
     finally:
+        interrupt = getattr(pipeline, "interrupt", None)
+        if callable(interrupt):
+            interrupt()
+        else:
+            handle_start = getattr(pipeline, "handle_speech_start", None)
+            if callable(handle_start):
+                handle_start()
         for pending_turn in pending_turns:
             pending_turn.cancel()
         turn_executor.shutdown(wait=True, cancel_futures=True)
@@ -310,6 +315,13 @@ class ListenLoopThread:
 
     def stop(self) -> None:
         self.stop_event.set()
+        interrupt = getattr(self.pipeline, "interrupt", None)
+        if callable(interrupt):
+            interrupt()
+        else:
+            handle_start = getattr(self.pipeline, "handle_speech_start", None)
+            if callable(handle_start):
+                handle_start()
         if self.thread is not None:
             self.thread.join(timeout=2.0)
             self.thread = None
