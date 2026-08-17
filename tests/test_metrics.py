@@ -35,3 +35,20 @@ def test_events_are_appended_as_jsonl(tmp_path: Path):
     ]
     assert records[0]["name"] == "vad_end"
     assert records[0]["turn_id"] == 7
+
+
+def test_span_uses_injected_clock():
+    class Clock:
+        def __init__(self):
+            self.t = 10.0
+
+        def __call__(self):
+            return self.t
+
+    clock = Clock()
+    sink = MetricsSink(enabled=True, clock=clock)
+    with sink.span("stt"):
+        clock.t = 10.25
+    events = sink.events()
+    assert events[0]["name"] == "stt"
+    assert events[0]["duration_ms"] == 250.0

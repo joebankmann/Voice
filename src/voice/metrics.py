@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -16,9 +17,11 @@ class MetricsSink:
         *,
         enabled: bool = False,
         log_path: str | Path | None = None,
+        clock: Callable[[], float] = time.perf_counter,
     ) -> None:
         self.enabled = enabled
         self.log_path = Path(log_path) if log_path else None
+        self._clock = clock
         self._events: list[dict[str, Any]] = []
         self._lock = threading.Lock()
 
@@ -29,7 +32,7 @@ class MetricsSink:
     def mark(self, name: str, **fields: Any) -> None:
         if not self.enabled:
             return
-        self._record({"name": name, "t": time.perf_counter(), **fields})
+        self._record({"name": name, "t": self._clock(), **fields})
 
     @contextmanager
     def span(self, name: str, **fields: Any) -> Iterator[None]:
@@ -37,14 +40,14 @@ class MetricsSink:
             yield
             return
 
-        started_at = time.perf_counter()
+        started_at = self._clock()
         try:
             yield
         finally:
             self._record(
                 {
                     "name": name,
-                    "duration_ms": (time.perf_counter() - started_at) * 1000.0,
+                    "duration_ms": (self._clock() - started_at) * 1000.0,
                     **fields,
                 }
             )

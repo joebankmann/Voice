@@ -1,0 +1,7 @@
+sanitize:
+  - source: "Hello **world** 🙂"
+    expected: "Hello world"
+  - source: "See [docs](https://example.com) now."
+    expected: "See docs now."
+  - source: "[laugh] okay"
+    expected: "ha ha. okay"
