@@ -3,9 +3,13 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from voice.chunker import PhraseChunker
+from voice.config import MemoryConfig
+from voice.memory import EpisodicStore, PreferencesStore
+from voice.memory.intent import extract_remember_intent
 from voice.metrics import MetricsSink
 from voice.session import (
     ConversationSession,
@@ -16,7 +20,16 @@ from voice.session import (
 
 PipelineEvent = dict[str, Any]
 PipelineListener = Callable[[PipelineEvent], None]
+MemoryPromptComposer = Callable[..., str]
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class PipelineMemory:
+    config: MemoryConfig
+    preferences: PreferencesStore
+    episodic: EpisodicStore
+    compose_prompt: MemoryPromptComposer
 
 
 class _ReportedPipelineError(Exception):
@@ -37,6 +50,7 @@ class VoicePipeline:
         system_prompt: str = "",
         metrics: MetricsSink | None = None,
         warmup_tts: bool = False,
+        memory: PipelineMemory | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -44,8 +58,10 @@ class VoicePipeline:
         self.chunker = chunker
         self.audio = audio
         self.system_prompt = system_prompt
+        self.base_system_prompt = system_prompt
         self.metrics = metrics or MetricsSink()
         self.warmup_tts = warmup_tts
+        self.memory = memory
         self._listeners: list[PipelineListener] = []
         self._interrupted = threading.Event()
         self._started = False
@@ -117,6 +133,7 @@ class VoicePipeline:
         cleaned_transcript = transcript.strip()
         if cleaned_transcript:
             self._emit({"type": "user_transcript", "text": cleaned_transcript})
+            self._prepare_memory(cleaned_transcript)
         self._emit_state()
 
         for event in events:
@@ -124,6 +141,41 @@ class VoicePipeline:
                 return self._stream_reply()
             self._apply_session_event(event)
         return ""
+
+    def _prepare_memory(self, transcript: str) -> None:
+        memory = self.memory
+        if memory is None or not memory.config.enabled:
+            return
+
+        memory_write = extract_remember_intent(transcript)
+        if memory_write is not None:
+            if memory_write.kind == "preference" and memory_write.key is not None:
+                memory.preferences.set(memory_write.key, memory_write.value)
+            elif memory_write.kind == "episodic":
+                memory.episodic.add(memory_write.value)
+
+        preferences = memory.preferences.get_all()
+        episodic_notes = memory.episodic.retrieve(
+            transcript,
+            limit=memory.config.max_episodic_hits,
+        )
+        self.system_prompt = memory.compose_prompt(
+            preferences=preferences,
+            episodic_notes=episodic_notes,
+            max_inject_chars=memory.config.max_inject_chars,
+        )
+        separator = self.base_system_prompt + "\n\n"
+        injected_chars = (
+            len(self.system_prompt) - len(separator)
+            if self.system_prompt.startswith(separator)
+            else 0
+        )
+        self.metrics.mark(
+            "memory_inject",
+            prefs=len(preferences),
+            episodic=len(episodic_notes),
+            chars=injected_chars,
+        )
 
     def _stream_reply(self) -> str:
         self._interrupted.clear()

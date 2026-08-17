@@ -5,6 +5,7 @@ import queue
 import threading
 from collections import deque
 from concurrent.futures import Future, ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 
 import numpy as np
@@ -13,9 +14,10 @@ from voice.audio_io import AudioHub
 from voice.chunker import PhraseChunker
 from voice.config import AppConfig, load_config
 from voice.llm import LlmClient
+from voice.memory import EpisodicStore, PreferencesStore
 from voice.metrics import MetricsSink
-from voice.pipeline import VoicePipeline
-from voice.prompting import build_system_prompt
+from voice.pipeline import PipelineMemory, VoicePipeline
+from voice.prompting import build_system_prompt, compose_system_prompt
 from voice.session import ConversationSession
 from voice.stt import SttBackend, build_stt
 from voice.tts_factory import create_tts_engine
@@ -46,13 +48,31 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         system_prompt_path,
         world_context_path=world_context_path,
     )
+    memory = None
+    max_history_messages = None
+    if config.memory.enabled:
+        memory = PipelineMemory(
+            config=config.memory,
+            preferences=PreferencesStore(
+                _resolve_path(config_dir, config.memory.preferences_path)
+            ),
+            episodic=EpisodicStore(
+                _resolve_path(config_dir, config.memory.episodic_path)
+            ),
+            compose_prompt=partial(
+                compose_system_prompt,
+                system_prompt_path,
+                world_context_path=world_context_path,
+            ),
+        )
+        max_history_messages = config.memory.max_history_messages
     telemetry_log_path = (
         _resolve_path(config_dir, config.telemetry.log_path)
         if config.telemetry.log_path
         else None
     )
     return VoicePipeline(
-        session=ConversationSession(),
+        session=ConversationSession(max_history_messages=max_history_messages),
         llm=LlmClient(
             config.llm.base_url,
             config.llm.model,
@@ -67,6 +87,7 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
             log_path=telemetry_log_path,
         ),
         warmup_tts=config.tts.warmup_on_start,
+        memory=memory,
     )
 
 
