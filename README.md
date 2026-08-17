@@ -156,6 +156,30 @@ behavior matches the pre-memory pipeline.
 Enable `telemetry.enabled` to log `memory_inject` events (`prefs`, `episodic`,
 `chars`).
 
+## Tools (Phase C)
+
+Opt-in offline tools use silent markers the model may emit (never spoken):
+
+```text
+<<tool:local_time|{}>>
+<<tool:preference_set|{"key":"prefer","value":"short answers"}>>
+<<tool:note_add|{"text":"Sailboat uses cedar"}>>
+```
+
+In `config.yaml`:
+
+```yaml
+tools:
+  enabled: true
+  timeout_ms: 2000
+  allow_online: false
+```
+
+When enabled, a Tools section is added to the system prompt. After a tool runs,
+the pipeline does one spoken continuation with the results. With
+`tools.enabled: false` (default when omitted), there is no Tools prompt and no
+execution (markers are still stripped from speech).
+
 ## Manual smoke checklist
 
 1. Start the llama server, then launch the UI and click **Start**.
