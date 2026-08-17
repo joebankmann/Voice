@@ -34,7 +34,7 @@
 | **B** | Memory + context orchestration | **Implemented** (human checklist pending) | Preferences + episodic recall without blowing context |
 | **C** | Tools | **Implemented** (human checklist pending) | Opt-in local tools; core stays tool-free by default |
 | **D** | Specialist agents | **Implemented** (human checklist pending) | Optional helpers; default path still one LLM |
-| **E** | Ecosystem + eval | Planned | Profiles marketplace-style packaging, regression harness |
+| **E** | Ecosystem + eval | **Implemented** (human golden-WAV optional) | Profiles marketplace-style packaging, regression harness |
 | **F** | Future directions | Backlog | Emotion, multimodal, adaptive personality |
 
 ```mermaid

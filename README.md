@@ -198,6 +198,44 @@ Requires `memory.enabled: true`. Leave `enabled: false` (the default) for
 Phase C behavior. A second GGUF is optional; pointing `helper_base_url` at
 another `llama-server` is only for when you have RAM/GPU headroom.
 
+## Profile packs (Phase E)
+
+Drop a directory under `profiles/<id>/` with `manifest.yaml` (no code change):
+
+```yaml
+schema_version: 1
+id: casual
+name: Casual companion
+version: "1.0.0"
+personality: personality.txt
+voice: default
+```
+
+```yaml
+profiles:
+  packs_dir: profiles
+  active: casual    # empty = no pack
+```
+
+A `casual` pack ships in the repo. Eval (sanitize fixtures + fake-clock latency
+budgets) runs in default `pytest`. Optional WAV smoke:
+
+```bash
+VOICE_GOLDEN=1 scripts/eval_golden_wav.sh
+```
+
+## Capability matrix
+
+| Capability | Runtime | Network after models are local |
+|---|---|---|
+| VAD, STT, LLM, TTS, UI | Local | Offline |
+| Memory / preferences | Local files | Offline |
+| Tools (`local_time`, notes, prefs) | Local | Offline (`allow_online: false`) |
+| Specialist helper | Local llama-server | Offline |
+| Profile packs | Local directories | Offline |
+| Model/weight **download** | curl / pip / Hugging Face | Online once, then cache |
+| Online search / browser / shell | Not included | — |
+
 ## Manual smoke checklist
 
 1. Start the llama server, then launch the UI and click **Start**.
