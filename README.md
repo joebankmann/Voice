@@ -180,6 +180,24 @@ the pipeline does one spoken continuation with the results. With
 `tools.enabled: false` (default when omitted), there is no Tools prompt and no
 execution (markers are still stripped from speech).
 
+## Specialist agents (Phase D)
+
+An optional **off-path** helper summarizes conversation turns that fall out of
+the working-memory window into an episodic note. It never runs before first
+audio.
+
+```yaml
+agents:
+  enabled: true
+  helper_base_url: ""    # empty = reuse the main llama-server
+  helper_model: ""
+  timeout_ms: 4000
+```
+
+Requires `memory.enabled: true`. Leave `enabled: false` (the default) for
+Phase C behavior. A second GGUF is optional; pointing `helper_base_url` at
+another `llama-server` is only for when you have RAM/GPU headroom.
+
 ## Manual smoke checklist
 
 1. Start the llama server, then launch the UI and click **Start**.
