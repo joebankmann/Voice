@@ -60,3 +60,10 @@ tools:
   enabled: false
   timeout_ms: 2000
   allow_online: false
+agents:
+  # Off-path helper for summarizing evicted history. Missing section = off.
+  # Empty helper_base_url reuses the main llama-server (no second model).
+  enabled: false
+  helper_base_url: ""
+  helper_model: ""
+  timeout_ms: 4000

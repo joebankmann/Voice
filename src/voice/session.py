@@ -28,15 +28,24 @@ class ConversationSession:
         self.state = SessionState.IDLE
         self.history: list[dict[str, str]] = []
         self.max_history_messages = max_history_messages
+        self._evicted: list[dict[str, str]] = []
 
     def force_state(self, state: SessionState) -> None:
         self.state = state
 
-    def _trim_history(self) -> None:
+    def _trim_history(self) -> list[dict[str, str]]:
+        dropped: list[dict[str, str]] = []
         if self.max_history_messages is None or self.max_history_messages <= 0:
-            return
+            return dropped
         while len(self.history) > self.max_history_messages:
-            self.history.pop(0)
+            dropped.append(self.history.pop(0))
+        self._evicted.extend(dropped)
+        return dropped
+
+    def take_evicted(self) -> list[dict[str, str]]:
+        dropped = self._evicted
+        self._evicted = []
+        return dropped
 
     def on_user_speech_start(self) -> list[SessionEvent]:
         events: list[SessionEvent] = []

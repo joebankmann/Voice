@@ -84,6 +84,14 @@ class ToolsConfig:
 
 
 @dataclass(frozen=True)
+class AgentsConfig:
+    enabled: bool = False
+    helper_base_url: str = ""
+    helper_model: str = ""
+    timeout_ms: int = 4000
+
+
+@dataclass(frozen=True)
 class AppConfig:
     audio: AudioConfig
     llm: LlmConfig
@@ -93,6 +101,7 @@ class AppConfig:
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
+    agents: AgentsConfig = field(default_factory=AgentsConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -106,4 +115,5 @@ def load_config(path: str | Path) -> AppConfig:
         telemetry=TelemetryConfig(**raw.get("telemetry", {})),
         memory=MemoryConfig(**raw.get("memory", {})),
         tools=ToolsConfig(**raw.get("tools", {})),
+        agents=AgentsConfig(**raw.get("agents", {})),
     )

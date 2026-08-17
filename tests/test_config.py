@@ -160,3 +160,70 @@ tools:
     assert tools.enabled is True
     assert tools.timeout_ms == 750
     assert tools.allow_online is True
+
+
+def test_load_config_defaults_agents_to_disabled(tmp_path: Path):
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        """
+audio:
+  sample_rate: 16000
+  end_of_turn_silence_ms: 600
+llm:
+  base_url: http://127.0.0.1:8080/v1
+  model: qwen3-8b
+  temperature: 0.7
+  system_prompt_path: prompts/system.txt
+stt:
+  whisper_bin: whisper-cli
+  model_path: models/ggml-large-v3-turbo.bin
+tts:
+  piper_bin: piper
+  voice_path: models/en_US-lessac-medium.onnx
+vad:
+  threshold: 0.5
+  min_speech_ms: 250
+""".strip()
+    )
+
+    agents = load_config(cfg_path).agents
+    assert agents.enabled is False
+    assert agents.helper_base_url == ""
+    assert agents.helper_model == ""
+    assert agents.timeout_ms == 4000
+
+
+def test_load_config_reads_agents_fields(tmp_path: Path):
+    cfg_path = tmp_path / "config.yaml"
+    cfg_path.write_text(
+        """
+audio:
+  sample_rate: 16000
+  end_of_turn_silence_ms: 600
+llm:
+  base_url: http://127.0.0.1:8080/v1
+  model: qwen3-8b
+  temperature: 0.7
+  system_prompt_path: prompts/system.txt
+stt:
+  whisper_bin: whisper-cli
+  model_path: models/ggml-large-v3-turbo.bin
+tts:
+  piper_bin: piper
+  voice_path: models/en_US-lessac-medium.onnx
+vad:
+  threshold: 0.5
+  min_speech_ms: 250
+agents:
+  enabled: true
+  helper_base_url: http://127.0.0.1:8082/v1
+  helper_model: qwen3-0.8b
+  timeout_ms: 1500
+""".strip()
+    )
+
+    agents = load_config(cfg_path).agents
+    assert agents.enabled is True
+    assert agents.helper_base_url == "http://127.0.0.1:8082/v1"
+    assert agents.helper_model == "qwen3-0.8b"
+    assert agents.timeout_ms == 1500

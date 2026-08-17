@@ -33,6 +33,8 @@ def test_history_trim_drops_oldest_when_over_limit():
     assert len(s.history) == 4
     assert s.history[0]["content"] == "2"
     assert s.history[-1]["content"] == "5"
+    assert s.take_evicted() == [{"role": "user", "content": "1"}]
+    assert s.take_evicted() == []
 
 
 def test_history_trim_on_user_speech_end():

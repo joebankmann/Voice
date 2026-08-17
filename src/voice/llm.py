@@ -54,3 +54,30 @@ class LlmClient:
                     if content:
                         yield content
             self._active = None
+
+    def complete(
+        self,
+        messages: list[dict[str, str]],
+        system_prompt: str,
+    ) -> str:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "temperature": self.temperature,
+            "stream": False,
+            "messages": [{"role": "system", "content": system_prompt}, *messages],
+        }
+        request = self._client.build_request(
+            "POST",
+            f"{self.base_url}/chat/completions",
+            json=payload,
+        )
+        response = self._client.send(request, stream=True)
+        self._active = response
+        try:
+            response.raise_for_status()
+            body = response.read()
+            obj = json.loads(body)
+            return str(obj["choices"][0]["message"]["content"])
+        finally:
+            self._active = None
+            response.close()
