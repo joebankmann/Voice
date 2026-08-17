@@ -92,6 +92,12 @@ class AgentsConfig:
 
 
 @dataclass(frozen=True)
+class ProfilesConfig:
+    packs_dir: str = "profiles"
+    active: str = ""
+
+
+@dataclass(frozen=True)
 class AppConfig:
     audio: AudioConfig
     llm: LlmConfig
@@ -102,6 +108,7 @@ class AppConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     tools: ToolsConfig = field(default_factory=ToolsConfig)
     agents: AgentsConfig = field(default_factory=AgentsConfig)
+    profiles: ProfilesConfig = field(default_factory=ProfilesConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -116,4 +123,5 @@ def load_config(path: str | Path) -> AppConfig:
         memory=MemoryConfig(**raw.get("memory", {})),
         tools=ToolsConfig(**raw.get("tools", {})),
         agents=AgentsConfig(**raw.get("agents", {})),
+        profiles=ProfilesConfig(**raw.get("profiles", {})),
     )

@@ -113,3 +113,11 @@ def append_tools_section(base_prompt: str, tools: Iterable[Tool]) -> str:
         + "\n".join(catalog)
     )
     return base_prompt + "\n\n" + section
+
+
+def append_personality(base_prompt: str, personality_text: str) -> str:
+    """Append a profile-pack personality block when text is non-empty."""
+    text = personality_text.strip()
+    if not text:
+        return base_prompt
+    return base_prompt + "\n\nPersonality:\n" + text

@@ -17,7 +17,8 @@ from voice.llm import LlmClient
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.metrics import MetricsSink
 from voice.pipeline import PipelineAgents, PipelineMemory, PipelineTools, VoicePipeline
-from voice.prompting import append_tools_section, build_system_prompt
+from voice.prompting import append_personality, append_tools_section, build_system_prompt
+from voice.profiles import discover_profile_packs, resolve_profile_pack
 from voice.session import ConversationSession
 from voice.stt import SttBackend, build_stt
 from voice.tools import ToolRunner, build_default_registry
@@ -42,13 +43,23 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
     selected = resolve_voice(voices, config.tts.voice_path)
     if selected is None and config.tts.clone_ref_wav:
         selected = resolve_voice(voices, Path(config.tts.clone_ref_wav).parent.name)
-    tts = create_tts_engine(config, selected=selected, config_dir=config_dir)
     system_prompt_path = _resolve_path(config_dir, config.llm.system_prompt_path)
     world_context_path = _resolve_path(config_dir, config.llm.world_context_path)
     system_prompt = build_system_prompt(
         system_prompt_path,
         world_context_path=world_context_path,
     )
+    packs = discover_profile_packs(
+        _resolve_path(config_dir, config.profiles.packs_dir)
+    )
+    active_pack = resolve_profile_pack(packs, config.profiles.active)
+    if active_pack is not None:
+        system_prompt = append_personality(system_prompt, active_pack.personality_text)
+        if active_pack.voice:
+            packed_voice = resolve_voice(voices, active_pack.voice)
+            if packed_voice is not None:
+                selected = packed_voice
+    tts = create_tts_engine(config, selected=selected, config_dir=config_dir)
     memory = None
     max_history_messages = None
     if config.memory.enabled:

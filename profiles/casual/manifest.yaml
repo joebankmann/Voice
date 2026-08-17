@@ -1,0 +1,6 @@
+schema_version: 1
+id: casual
+name: Casual companion
+version: "1.0.0"
+personality: personality.txt
+voice: default

@@ -67,3 +67,7 @@ agents:
   helper_base_url: ""
   helper_model: ""
   timeout_ms: 4000
+profiles:
+  # Drop-in packs under packs_dir/<id>/manifest.yaml. Empty active = none.
+  packs_dir: profiles
+  active: ""

@@ -2,6 +2,7 @@ from datetime import date
 from pathlib import Path
 
 from voice.prompting import (
+    append_personality,
     append_tools_section,
     build_system_prompt,
     compose_system_prompt,
@@ -98,3 +99,9 @@ def test_append_tools_section_documents_catalog_and_silent_marker_format():
 
 def test_append_tools_section_omits_section_when_no_tools():
     assert append_tools_section("Base instructions.", []) == "Base instructions."
+
+
+def test_append_personality_adds_block_when_nonempty():
+    prompt = append_personality("Base.", "Be warm.")
+    assert prompt == "Base.\n\nPersonality:\nBe warm."
+    assert append_personality("Base.", "  ") == "Base."
