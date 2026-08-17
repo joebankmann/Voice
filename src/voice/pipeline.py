@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from voice.chunker import PhraseChunker
-from voice.config import MemoryConfig
+from voice.config import MemoryConfig, ToolsConfig
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.memory.intent import extract_remember_intent
 from voice.metrics import MetricsSink
@@ -18,6 +19,10 @@ from voice.session import (
     SessionEventType,
     SessionState,
 )
+from voice.tools.base import ToolCall
+from voice.tools.markers import extract_tool_calls, strip_tool_markers
+from voice.tools.registry import ToolRegistry
+from voice.tools.runner import ToolRunner
 
 PipelineEvent = dict[str, Any]
 PipelineListener = Callable[[PipelineEvent], None]
@@ -29,6 +34,13 @@ class PipelineMemory:
     config: MemoryConfig
     preferences: PreferencesStore
     episodic: EpisodicStore
+
+
+@dataclass(frozen=True)
+class PipelineTools:
+    config: ToolsConfig
+    registry: ToolRegistry
+    runner: ToolRunner
 
 
 class _ReportedPipelineError(Exception):
@@ -50,6 +62,7 @@ class VoicePipeline:
         metrics: MetricsSink | None = None,
         warmup_tts: bool = False,
         memory: PipelineMemory | None = None,
+        tools: PipelineTools | None = None,
     ) -> None:
         self.session = session
         self.llm = llm
@@ -61,6 +74,7 @@ class VoicePipeline:
         self.metrics = metrics or MetricsSink()
         self.warmup_tts = warmup_tts
         self.memory = memory
+        self.tools = tools
         self._listeners: list[PipelineListener] = []
         self._interrupted = threading.Event()
         self._started = False
@@ -187,6 +201,7 @@ class VoicePipeline:
                 arm()
 
         try:
+            pending_speech = ""
             for token in self.llm.stream_chat(
                 self.session.history,
                 self.system_prompt,
@@ -199,9 +214,14 @@ class VoicePipeline:
                 tokens.append(token)
                 partial = "".join(tokens)
                 self._emit({"type": "assistant_partial", "text": partial})
-                for phrase in self.chunker.push(token):
+                visible, pending_speech = self._filter_tool_marker_stream(
+                    pending_speech + token
+                )
+                for phrase in self.chunker.push(visible):
                     self._speak(phrase)
             if not self._interrupted.is_set():
+                for phrase in self.chunker.push(strip_tool_markers(pending_speech)):
+                    self._speak(phrase)
                 for phrase in self.chunker.flush():
                     self._speak(phrase)
         except _ReportedPipelineError:
@@ -214,12 +234,137 @@ class VoicePipeline:
         assistant_text = "".join(tokens).strip()
         if assistant_text:
             self.session.append_assistant(assistant_text)
-            self._emit({"type": "assistant_final", "text": assistant_text})
+            self._emit(
+                {
+                    "type": "assistant_final",
+                    "text": strip_tool_markers(assistant_text).strip(),
+                }
+            )
+        continuation_text = ""
+        if not self._interrupted.is_set():
+            continuation_text = self._run_tool_continuation(assistant_text)
         if not self._interrupted.is_set():
             for event in self.session.on_assistant_audio_done():
                 self._apply_session_event(event)
             self._emit_state()
-        return assistant_text
+        spoken_text = " ".join(
+            part
+            for part in (
+                strip_tool_markers(assistant_text).strip(),
+                strip_tool_markers(continuation_text).strip(),
+            )
+            if part
+        )
+        return spoken_text
+
+    def _run_tool_continuation(self, assistant_text: str) -> str:
+        tools = self.tools
+        if tools is None or not tools.config.enabled:
+            return ""
+        calls = extract_tool_calls(assistant_text)
+        if not calls or self._interrupted.is_set():
+            return ""
+
+        results: list[tuple[ToolCall, str]] = []
+        for call in calls:
+            if self._interrupted.is_set():
+                return ""
+            started_at = time.perf_counter()
+            result = tools.runner.run_all([call])[0][1]
+            duration_ms = (time.perf_counter() - started_at) * 1000.0
+            ok = not (
+                result.startswith("Unknown tool:")
+                or (result.startswith("Tool ") and (
+                    result.endswith(" timed out.")
+                    or result.endswith(" failed.")
+                    or " is unavailable " in result
+                ))
+            )
+            self.metrics.mark(
+                "tool_call",
+                tool=call.name,
+                ok=ok,
+                duration_ms=duration_ms,
+            )
+            results.append((call, result))
+
+        if self._interrupted.is_set():
+            return ""
+        result_message = {
+            "role": "user",
+            "content": "Tool results:\n"
+            + "\n".join(f"{call.name}: {result}" for call, result in results),
+        }
+        self.session.history.append(result_message)
+        self.session._trim_history()
+        if self._interrupted.is_set():
+            return ""
+        return self._stream_continuation()
+
+    def _stream_continuation(self) -> str:
+        self.chunker.flush()
+        tokens: list[str] = []
+        pending_speech = ""
+        try:
+            for token in self.llm.stream_chat(
+                self.session.history,
+                self.system_prompt,
+            ):
+                if self._interrupted.is_set():
+                    break
+                tokens.append(token)
+                visible, pending_speech = self._filter_tool_marker_stream(
+                    pending_speech + token
+                )
+                for phrase in self.chunker.push(visible):
+                    self._speak(phrase)
+            if not self._interrupted.is_set():
+                for phrase in self.chunker.push(strip_tool_markers(pending_speech)):
+                    self._speak(phrase)
+                for phrase in self.chunker.flush():
+                    self._speak(phrase)
+        except _ReportedPipelineError:
+            return ""
+        except Exception as error:
+            if not self._interrupted.is_set():
+                self._recover_from_error("LLM", error)
+            return ""
+
+        continuation_text = "".join(tokens).strip()
+        if continuation_text:
+            self.session.append_assistant(continuation_text)
+            self._emit(
+                {
+                    "type": "assistant_final",
+                    "text": strip_tool_markers(continuation_text).strip(),
+                }
+            )
+        return continuation_text
+
+    @staticmethod
+    def _filter_tool_marker_stream(text: str) -> tuple[str, str]:
+        visible: list[str] = []
+        marker_prefix = "<<tool:"
+        while text:
+            marker_start = text.find(marker_prefix)
+            if marker_start >= 0:
+                visible.append(text[:marker_start])
+                marker_end = text.find(">>", marker_start + len(marker_prefix))
+                if marker_end < 0:
+                    return "".join(visible), text[marker_start:]
+                text = text[marker_end + 2 :]
+                continue
+
+            protected_chars = 0
+            for length in range(1, min(len(text), len(marker_prefix) - 1) + 1):
+                if text.endswith(marker_prefix[:length]):
+                    protected_chars = length
+            if protected_chars:
+                visible.append(text[:-protected_chars])
+                return "".join(visible), text[-protected_chars:]
+            visible.append(text)
+            return "".join(visible), ""
+        return "".join(visible), ""
 
     def _apply_session_event(self, event: SessionEvent) -> None:
         if event.type == SessionEventType.STOP_PLAYBACK:
@@ -228,6 +373,9 @@ class VoicePipeline:
             self.llm.cancel()
 
     def _speak(self, text: str) -> None:
+        text = strip_tool_markers(text).strip()
+        if not text:
+            return
         try:
             speak = getattr(self.tts, "speak", None)
             if callable(speak):

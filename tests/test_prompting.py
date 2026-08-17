@@ -1,7 +1,22 @@
 from datetime import date
 from pathlib import Path
 
-from voice.prompting import build_system_prompt, compose_system_prompt
+from voice.prompting import (
+    append_tools_section,
+    build_system_prompt,
+    compose_system_prompt,
+)
+from voice.tools import ToolRegistry
+
+
+class ExampleTool:
+    name = "local_time"
+    description = "Return the local time."
+    parameters_schema = {}
+    offline = True
+
+    def run(self, args):
+        return "unused"
 
 
 def test_build_system_prompt_includes_date_and_world_context(tmp_path: Path):
@@ -68,3 +83,18 @@ def test_compose_system_prompt_without_memory_matches_phase_a(tmp_path: Path):
     )
 
     assert composed == phase_a
+
+
+def test_append_tools_section_documents_catalog_and_silent_marker_format():
+    registry = ToolRegistry()
+    registry.register(ExampleTool())
+
+    prompt = append_tools_section("Base instructions.", registry.tools)
+
+    assert prompt.startswith("Base instructions.\n\nTools\n")
+    assert '<<tool:NAME|{"arg":"value"}>>' in prompt
+    assert "local_time: Return the local time." in prompt
+
+
+def test_append_tools_section_omits_section_when_no_tools():
+    assert append_tools_section("Base instructions.", []) == "Base instructions."

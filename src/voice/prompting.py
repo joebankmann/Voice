@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date
 from pathlib import Path
+
+from voice.tools.base import Tool
 
 
 def build_system_prompt(
@@ -92,3 +95,21 @@ def append_memory_inject(
     if not block:
         return base_prompt, 0
     return base_prompt + "\n\n" + block, len(block)
+
+
+def append_tools_section(base_prompt: str, tools: Iterable[Tool]) -> str:
+    """Append silent tool-call instructions and the available tool catalog."""
+    catalog = [
+        f"- {tool.name}: {tool.description} Arguments: {tool.parameters_schema}"
+        for tool in tools
+    ]
+    if not catalog:
+        return base_prompt
+    section = (
+        "Tools\n"
+        "Tool calls are silent. Never read their marker or JSON aloud.\n"
+        'Use this exact format: <<tool:NAME|{"arg":"value"}>>\n'
+        "Available tools:\n"
+        + "\n".join(catalog)
+    )
+    return base_prompt + "\n\n" + section

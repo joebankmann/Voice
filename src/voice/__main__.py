@@ -15,10 +15,11 @@ from voice.config import AppConfig, load_config
 from voice.llm import LlmClient
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.metrics import MetricsSink
-from voice.pipeline import PipelineMemory, VoicePipeline
-from voice.prompting import build_system_prompt
+from voice.pipeline import PipelineMemory, PipelineTools, VoicePipeline
+from voice.prompting import append_tools_section, build_system_prompt
 from voice.session import ConversationSession
 from voice.stt import SttBackend, build_stt
+from voice.tools import ToolRunner, build_default_registry
 from voice.tts_factory import create_tts_engine
 from voice.ui import run_app
 from voice.vad import VadEngine, create_default_vad
@@ -60,6 +61,22 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
             ),
         )
         max_history_messages = config.memory.max_history_messages
+    tools = None
+    if config.tools.enabled:
+        registry = build_default_registry(
+            preferences=memory.preferences if memory is not None else None,
+            episodic=memory.episodic if memory is not None else None,
+        )
+        system_prompt = append_tools_section(system_prompt, registry.tools)
+        tools = PipelineTools(
+            config=config.tools,
+            registry=registry,
+            runner=ToolRunner(
+                registry,
+                timeout_ms=config.tools.timeout_ms,
+                allow_online=config.tools.allow_online,
+            ),
+        )
     telemetry_log_path = (
         _resolve_path(config_dir, config.telemetry.log_path)
         if config.telemetry.log_path
@@ -82,6 +99,7 @@ def build_pipeline(config: AppConfig, config_dir: Path) -> VoicePipeline:
         ),
         warmup_tts=config.tts.warmup_on_start,
         memory=memory,
+        tools=tools,
     )
 
 
