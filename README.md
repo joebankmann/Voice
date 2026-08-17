@@ -224,6 +224,28 @@ budgets) runs in default `pytest`. Optional WAV smoke:
 VOICE_GOLDEN=1 scripts/eval_golden_wav.sh
 ```
 
+## Future directions (Phase F)
+
+All of these default **off**. They never add a second model to the spoken path.
+
+```yaml
+future:
+  affect: false              # lexicon hint from the user transcript
+  inbox: false               # consume .txt/.md from inbox_dir once
+  inbox_dir: data/inbox
+  adaptive_personality: false  # blend stored prefer/tone into the prompt
+agents:
+  collaborative: false       # extra off-path action-item pass after summarize
+```
+
+Drop a markdown or text file into `data/inbox/` when inbox is on; it is moved
+to `processed/` after one turn. Images are recorded as unsupported (no vision
+model). Continuous eval snapshots:
+
+```bash
+python3.11 -m voice.eval_harness --cases tests/eval/cases/sanitize.yaml --jsonl data/eval.jsonl
+```
+
 ## Capability matrix
 
 | Capability | Runtime | Network after models are local |
@@ -233,6 +255,7 @@ VOICE_GOLDEN=1 scripts/eval_golden_wav.sh
 | Tools (`local_time`, notes, prefs) | Local | Offline (`allow_online: false`) |
 | Specialist helper | Local llama-server | Offline |
 | Profile packs | Local directories | Offline |
+| Affect / text inbox / adaptive tone | Local lexicon + files | Offline |
 | Model/weight **download** | curl / pip / Hugging Face | Online once, then cache |
 | Online search / browser / shell | Not included | — |
 

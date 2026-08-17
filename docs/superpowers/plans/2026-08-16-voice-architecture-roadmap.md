@@ -35,7 +35,7 @@
 | **C** | Tools | **Implemented** (human checklist pending) | Opt-in local tools; core stays tool-free by default |
 | **D** | Specialist agents | **Implemented** (human checklist pending) | Optional helpers; default path still one LLM |
 | **E** | Ecosystem + eval | **Implemented** (human golden-WAV optional) | Profiles marketplace-style packaging, regression harness |
-| **F** | Future directions | Backlog | Emotion, multimodal, adaptive personality |
+| **F** | Future directions | **Implemented** (human checklist pending) | Gated affect, text inbox, adaptive tone, off-path actions, eval JSONL |
 
 ```mermaid
 flowchart LR
@@ -393,12 +393,18 @@ Defer dual-model routing until Phase A metrics show headroom. A resident 1B help
 
 ---
 
-## Phase F — Future directions (backlog only)
+## Phase F — Future directions
 
 **PDF coverage:** §24  
+**Depends on:** Phase E  
+**Design:** `docs/superpowers/specs/2026-08-17-voice-future-design.md`
 
-- Emotion recognition, multimodal input, adaptive personalities, collaborative agents, continuous benchmarking  
-- Revisit only after E; each item needs its own design gate
+Shipped as config-gated local slices (all default off): lexicon affect, text/markdown inbox, preference-adaptive prompt, optional second off-path helper pass, append-only eval JSONL. Neural emotion, vision, and dual-model hot-path routing remain out of scope.
+
+### Exit criteria
+
+- Missing `future` / `agents.collaborative` matches Phase E
+- `pytest` covers affect, inbox, adapt, collaborative helper, and eval snapshots without models
 
 ---
 
