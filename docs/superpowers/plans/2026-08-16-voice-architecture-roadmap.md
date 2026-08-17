@@ -31,7 +31,7 @@
 |---|---|---|---|
 | **0** | Conversational core | **Done** (MVP + F5 hybrid TTS) | Offline loop, UI, barge-in, clone voices |
 | **A** | Low latency + hardening | **Implemented** (human checklist pending) | Warm TTFA ≤ ~1.5 s; STT not CLI-per-turn; telemetry; human E2E pass |
-| **B** | Memory + context orchestration | Planned | Preferences + episodic recall without blowing context |
+| **B** | Memory + context orchestration | **Implemented** (human checklist pending) | Preferences + episodic recall without blowing context |
 | **C** | Tools | Planned | Opt-in local tools; core stays tool-free by default |
 | **D** | Specialist agents | Planned | Optional helpers; default path still one LLM |
 | **E** | Ecosystem + eval | Planned | Profiles marketplace-style packaging, regression harness |

@@ -1,0 +1,11 @@
+# Local Voice — ignore generated / large artifacts
+
+data/preferences.yaml
+data/episodic.jsonl
+config.yaml
+models/
+*.pyc
+__pycache__/
+.venv/
+src/voice.egg-info/
+.superpowers/sdd/*.diff

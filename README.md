@@ -90,25 +90,71 @@ With `tts.warmup_on_start: true`, Start synthesizes and discards a short phrase
 so F5 is ready for the first reply. Set it to `false` for Piper-only setups
 where warmup is unnecessary.
 
+## Customize behavior
+
+- `prompts/system.txt` — personality and “no refusal” spoken rules.
+- `prompts/world_context.txt` — editable current facts (president, etc.). The app
+  also injects today’s date. Update this file when world facts change; the model
+  has no live internet.
+- If the base Qwen instruct weights still refuse after a restart, that refusal is
+  inside the model weights, not app filters—swap to a less-aligned local GGUF.
+
 ## Customize voices
 
-Assistant speech uses local **Piper** voices. You can change the voice in three
-ways:
+### F5 clone (Phase 2 default via `tts.backend: hybrid`)
 
-1. **Config (default voice)** — in `config.yaml` set:
-   - `tts.voice_path` — path to the active `.onnx` model
-   - `tts.voices_dir` — folder scanned for available voices (default `models`)
-   - `tts.length_scale` — speaking rate (`1.0` normal; lower is faster, higher is slower)
-   - `tts.sample_rate` — fallback rate if a voice has no `.onnx.json` sidecar
-2. **Desktop UI** — the **Voice** dropdown lists every `*.onnx` file in
-   `tts.voices_dir`. Pick one to switch immediately for the next spoken reply
-   (sample rate is read from the matching `.onnx.json` when present).
-3. **Add more voices** — download another Piper `.onnx` + `.onnx.json` pair into
-   `voices_dir` (see `scripts/download_models.sh` and
-   https://github.com/rhasspy/piper/blob/master/VOICES.md). Restart the app (or
-   re-open the UI) so newly added files appear in the dropdown.
+Natural zero-shot cloning uses **F5-TTS on MLX** (Apple Silicon), with Piper as
+fallback if F5 cannot load.
 
-Voice cloning / non-Piper TTS engines are Phase 2.
+```bash
+python3.11 -m pip install -e ".[tts]"
+```
+
+Add a clone profile:
+
+```bash
+mkdir -p voices/clones/myvoice
+ffmpeg -i your_sample.wav -ac 1 -ar 24000 -sample_fmt s16 -t 10 \
+  voices/clones/myvoice/ref.wav
+echo 'Exact words spoken in that clip.' > voices/clones/myvoice/ref.txt
+```
+
+Restart the app and select the profile in the Voice dropdown. A starter
+`voices/clones/default` profile is included.
+
+Config: `tts.backend` (`hybrid` | `f5` | `piper`), `tts.clones_dir`,
+`tts.f5_steps`, `tts.f5_quantization_bits`.
+
+Gesture tags: `[laugh] [chuckle] [sigh] [pause]`.
+
+### Piper (legacy)
+
+Piper `.onnx` voices under `tts.voices_dir` still appear in the dropdown when
+present. See `scripts/download_models.sh` and Piper’s VOICES.md for more.
+
+## Memory (Phase B)
+
+Local preferences and notes persist under `data/` (paths configurable).
+
+In `config.yaml`:
+
+```yaml
+memory:
+  enabled: true
+  preferences_path: data/preferences.yaml
+  episodic_path: data/episodic.jsonl
+  max_history_messages: 24
+  max_episodic_hits: 3
+  max_inject_chars: 1200
+```
+
+Say phrases like **“Remember that I prefer short answers”** or **“Remember that
+the sailboat uses cedar”**. Preferences survive app restarts and are injected
+into the system prompt within `max_inject_chars`. With `memory.enabled: false`,
+behavior matches the pre-memory pipeline.
+
+Enable `telemetry.enabled` to log `memory_inject` events (`prefs`, `episodic`,
+`chars`).
 
 ## Manual smoke checklist
 
@@ -135,8 +181,8 @@ connection or cloud API.
 
 ## Phase 2
 
-An NSFW adapter, improved TTS, and a helper model are intentionally deferred to
-Phase 2.
+An NSFW adapter and a helper model remain deferred. **Human TTS** (F5-TTS MLX
+clone + Piper fallback) is implemented — see Customize voices.
 
 ## Local smoke-test notes
 
