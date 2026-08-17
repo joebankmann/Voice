@@ -25,6 +25,7 @@ class UiController:
     selected_voice: str = ""
     status: str = "IDLE"
     transcript_lines: list[str] = field(default_factory=list)
+    rendered_line_count: int = 0
 
     def __post_init__(self) -> None:
         self.pipeline.add_listener(self.handle_event)
@@ -54,6 +55,14 @@ class UiController:
             if voice.name == voice_name:
                 self.on_voice_selected(voice)
                 return
+
+    def pending_transcript_lines(self) -> list[str]:
+        """Return only lines not yet shown in the transcript widget."""
+        if self.rendered_line_count >= len(self.transcript_lines):
+            return []
+        pending = self.transcript_lines[self.rendered_line_count :]
+        self.rendered_line_count = len(self.transcript_lines)
+        return pending
 
     def handle_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
@@ -116,13 +125,30 @@ def run_app(
 
     voice_menu.bind("<<ComboboxSelected>>", on_voice_picked)
 
-    transcript = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=26)
+    # state=normal keeps text selectable/copyable; we append instead of rewriting.
+    transcript = scrolledtext.ScrolledText(
+        root,
+        wrap=tk.WORD,
+        height=26,
+        state=tk.NORMAL,
+        exportselection=True,
+    )
     transcript.pack(fill=tk.BOTH, expand=True, padx=12, pady=8)
+    last_status = {"value": controller.status}
 
     def refresh() -> None:
-        status_var.set(controller.status)
-        transcript.delete("1.0", tk.END)
-        transcript.insert(tk.END, "\n".join(controller.transcript_lines))
+        if controller.status != last_status["value"]:
+            last_status["value"] = controller.status
+            status_var.set(controller.status)
+
+        pending = controller.pending_transcript_lines()
+        if pending:
+            # Preserve user selection/scroll: only append new lines.
+            at_bottom = transcript.yview()[1] >= 0.99
+            prefix = "" if transcript.index("end-1c") == "1.0" else "\n"
+            transcript.insert(tk.END, prefix + "\n".join(pending))
+            if at_bottom:
+                transcript.see(tk.END)
         root.after(100, refresh)
 
     button_row = tk.Frame(root)

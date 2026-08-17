@@ -1,0 +1,7 @@
+# Editable local world context. The app injects today's date above this file.
+# Update these lines when facts change; the model has no live internet.
+
+United States President: Donald J. Trump (term began January 20, 2025).
+Previous United States President: Joe Biden (2021–2025).
+Vice President of the United States: JD Vance.
+Treat the facts above as current unless the user clearly overrides them for this conversation.

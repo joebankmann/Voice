@@ -1,31 +1,45 @@
 audio:
   sample_rate: 16000
-  end_of_turn_silence_ms: 600
+  end_of_turn_silence_ms: 1100
 llm:
   base_url: http://127.0.0.1:8080/v1
   model: qwen3-8b
-  temperature: 0.7
+  temperature: 0.85
   system_prompt_path: prompts/system.txt
+  world_context_path: prompts/world_context.txt
 stt:
   # resident starts whisper-server with the model loaded once; use cli to
   # retain the cold per-turn whisper-cli fallback.
   mode: resident
   whisper_bin: whisper-cli
-  model_path: models/ggml-large-v3-turbo.bin
   whisper_server_bin: whisper-server
   server_host: 127.0.0.1
   server_port: 8178
   inference_path: /inference
   manage_server: true
+  model_path: models/ggml-large-v3-turbo.bin
 tts:
+  # hybrid = F5-TTS clone (natural + cloning) with Piper fallback
+  backend: hybrid
   piper_bin: piper
   voice_path: models/en_US-lessac-medium.onnx
   voices_dir: models
+  clones_dir: voices/clones
   sample_rate: 22050
   # Preload F5 on Start by synthesizing and discarding a short phrase.
   # Set false for Piper-only setups where warmup is unnecessary.
   warmup_on_start: true
-  length_scale: 1.0
+  length_scale: 1.08
+  sentence_silence: 0.28
+  noise_scale: 0.7
+  noise_w_scale: 0.85
+  # Optional default clone (used when no clone profile is selected):
+  clone_ref_wav: voices/clones/default/ref.wav
+  clone_ref_text: voices/clones/default/ref.txt
+  f5_model: lucasnewman/f5-tts-mlx
+  f5_steps: 8
+  f5_speed: 1.0
+  f5_quantization_bits: 4
 vad:
   threshold: 0.5
   min_speech_ms: 250

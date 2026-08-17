@@ -91,3 +91,12 @@ def test_controller_voice_change_invokes_callback():
     controller.on_voice_change("beta")
     assert selected == ["beta"]
     assert controller.selected_voice == "beta"
+
+
+def test_pending_transcript_lines_are_append_only():
+    controller = UiController(pipeline=FakePipeline())
+    controller.handle_event({"type": "user_transcript", "text": "hi"})
+    assert controller.pending_transcript_lines() == ["You: hi"]
+    assert controller.pending_transcript_lines() == []
+    controller.handle_event({"type": "assistant_final", "text": "hello"})
+    assert controller.pending_transcript_lines() == ["Assistant: hello"]

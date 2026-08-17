@@ -18,6 +18,7 @@ class LlmConfig:
     model: str
     temperature: float
     system_prompt_path: str
+    world_context_path: str = "prompts/world_context.txt"
 
 
 @dataclass(frozen=True)
@@ -39,7 +40,18 @@ class TtsConfig:
     sample_rate: int = 22_050
     voices_dir: str = "models"
     warmup_on_start: bool = True
-    length_scale: float = 1.0
+    clones_dir: str = "voices/clones"
+    backend: str = "hybrid"
+    length_scale: float = 1.05
+    sentence_silence: float = 0.25
+    noise_scale: float = 0.667
+    noise_w_scale: float = 0.8
+    clone_ref_wav: str = ""
+    clone_ref_text: str = ""
+    f5_model: str = "lucasnewman/f5-tts-mlx"
+    f5_steps: int = 8
+    f5_speed: float = 1.0
+    f5_quantization_bits: int | None = 4
 
 
 @dataclass(frozen=True)
