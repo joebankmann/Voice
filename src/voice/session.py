@@ -24,12 +24,19 @@ class SessionEvent:
 
 
 class ConversationSession:
-    def __init__(self) -> None:
+    def __init__(self, max_history_messages: int | None = None) -> None:
         self.state = SessionState.IDLE
         self.history: list[dict[str, str]] = []
+        self.max_history_messages = max_history_messages
 
     def force_state(self, state: SessionState) -> None:
         self.state = state
+
+    def _trim_history(self) -> None:
+        if self.max_history_messages is None or self.max_history_messages <= 0:
+            return
+        while len(self.history) > self.max_history_messages:
+            self.history.pop(0)
 
     def on_user_speech_start(self) -> list[SessionEvent]:
         events: list[SessionEvent] = []
@@ -46,6 +53,7 @@ class ConversationSession:
             self.state = SessionState.LISTENING
             return [SessionEvent(SessionEventType.START_LISTENING)]
         self.history.append({"role": "user", "content": text})
+        self._trim_history()
         self.state = SessionState.THINKING_SPEAKING
         return [SessionEvent(SessionEventType.REQUEST_REPLY, transcript=text)]
 
@@ -55,3 +63,4 @@ class ConversationSession:
 
     def append_assistant(self, text: str) -> None:
         self.history.append({"role": "assistant", "content": text})
+        self._trim_history()
