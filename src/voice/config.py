@@ -55,6 +55,16 @@ class TelemetryConfig:
 
 
 @dataclass(frozen=True)
+class MemoryConfig:
+    enabled: bool = False
+    preferences_path: str = "data/preferences.yaml"
+    episodic_path: str = "data/episodic.jsonl"
+    max_history_messages: int = 24
+    max_episodic_hits: int = 3
+    max_inject_chars: int = 1200
+
+
+@dataclass(frozen=True)
 class AppConfig:
     audio: AudioConfig
     llm: LlmConfig
@@ -62,6 +72,7 @@ class AppConfig:
     tts: TtsConfig
     vad: VadConfig
     telemetry: TelemetryConfig = field(default_factory=TelemetryConfig)
+    memory: MemoryConfig = field(default_factory=MemoryConfig)
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -73,4 +84,5 @@ def load_config(path: str | Path) -> AppConfig:
         tts=TtsConfig(**raw["tts"]),
         vad=VadConfig(**raw["vad"]),
         telemetry=TelemetryConfig(**raw.get("telemetry", {})),
+        memory=MemoryConfig(**raw.get("memory", {})),
     )

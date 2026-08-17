@@ -33,3 +33,11 @@ telemetry:
   enabled: false
   # Optional JSONL event log, relative to this config file:
   log_path: ""
+memory:
+  # Missing memory config defaults to disabled for Phase A compatibility.
+  enabled: true
+  preferences_path: data/preferences.yaml
+  episodic_path: data/episodic.jsonl
+  max_history_messages: 24
+  max_episodic_hits: 3
+  max_inject_chars: 1200
