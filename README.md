@@ -4,6 +4,9 @@ Offline-first streaming voice chat using whisper.cpp for speech recognition,
 llama.cpp for local generation, Piper for speech synthesis, and Silero for
 voice activity detection.
 
+**Operator manual** (setup, companion processes, UI, and every config key):
+[docs/VOICE_MANUAL.md](docs/VOICE_MANUAL.md).
+
 ## Prerequisites
 
 The project requires Python 3.11 or newer. On macOS, install the native
@@ -14,9 +17,11 @@ brew install python@3.11 python-tk@3.11 whisper-cpp llama.cpp
 python3.11 -m pip install piper-tts
 ```
 
-The `whisper-cli`, `llama-server`, and `piper` executables must be available on
-`PATH`. If a package-manager binary name or path differs, update
-`config.yaml`.
+The `whisper-cli`, `whisper-server`, `llama-server`, and `piper` executables
+must be available on `PATH`. Default `stt.mode` is `resident` (managed
+`whisper-server` on port 8178). Set `stt.mode: cli` to fall back to a
+cold `whisper-cli` process per turn. If a package-manager binary name or path
+differs, update `config.yaml`.
 
 Tkinter is required for the default desktop UI. A Homebrew Python installation
 can add it with `brew install python-tk@3.11`. The macOS `/usr/bin/python3`
@@ -308,6 +313,6 @@ Qwen3 8B Q4_K_M, Whisper large-v3-turbo, and Piper en_US-lessac-medium.
 - The configured Piper adapter produced 3.448 s of non-silent mono PCM (152,064
   bytes, RMS 3,969) in 0.837 s. Feeding that audio to the configured Whisper
   adapter returned the exact phrase in 3.530 s.
-- Silero VAD loaded locally in 0.032 s. The automated suite passed 19/19 tests.
+- Silero VAD loaded locally in 0.032 s.
 - Microphone barge-in, physical playback, UI interaction, and end-to-end
   time-to-first-audio remain **inconclusive — requires human mic test**.
