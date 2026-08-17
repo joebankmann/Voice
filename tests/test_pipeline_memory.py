@@ -1,5 +1,4 @@
 from datetime import date
-from functools import partial
 from pathlib import Path
 
 from voice.chunker import PhraseChunker
@@ -7,15 +6,17 @@ from voice.config import MemoryConfig
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.metrics import MetricsSink
 from voice.pipeline import PipelineMemory, VoicePipeline
-from voice.prompting import build_system_prompt, compose_system_prompt
-from voice.session import ConversationSession
+from voice.prompting import build_system_prompt
+from voice.session import ConversationSession, SessionState
 
 
 class RecordingLlm:
     def __init__(self):
         self.system_prompts: list[str] = []
+        self.stream_calls = 0
 
     def stream_chat(self, messages, system_prompt):
+        self.stream_calls += 1
         self.system_prompts.append(system_prompt)
         yield "Acknowledged."
 
@@ -51,14 +52,9 @@ def _memory_pipeline(
         config=config,
         preferences=preferences,
         episodic=episodic,
-        compose_prompt=partial(
-            compose_system_prompt,
-            system_path,
-            today=date(2026, 8, 16),
-        ),
     )
     pipeline = VoicePipeline(
-        session=ConversationSession(),
+        session=ConversationSession(max_history_messages=config.max_history_messages),
         llm=llm,
         tts=SilentTts(),
         chunker=PhraseChunker(),
@@ -110,3 +106,21 @@ def test_disabled_memory_skips_write_injection_and_metrics(tmp_path: Path):
     assert all(
         event["name"] != "memory_inject" for event in pipeline.metrics.events()
     )
+
+
+def test_barge_in_during_memory_prep_skips_llm_stream(tmp_path: Path):
+    pipeline, preferences, _, llm = _memory_pipeline(tmp_path)
+    original_prepare = pipeline._prepare_memory
+
+    def slow_prepare(transcript: str) -> None:
+        original_prepare(transcript)
+        pipeline.handle_speech_start()
+
+    pipeline._prepare_memory = slow_prepare  # type: ignore[method-assign]
+
+    reply = pipeline.run_turn("Remember that I prefer short answers")
+
+    assert reply == ""
+    assert llm.stream_calls == 0
+    assert preferences.get_all() == {"prefer": "short answers"}
+    assert pipeline.session.state == SessionState.LISTENING

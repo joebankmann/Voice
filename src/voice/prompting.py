@@ -38,8 +38,24 @@ def compose_system_prompt(
         world_context_path=world_context_path,
         today=today,
     )
+    composed, _chars = append_memory_inject(
+        prompt,
+        preferences=preferences,
+        episodic_notes=episodic_notes,
+        max_inject_chars=max_inject_chars,
+    )
+    return composed
+
+
+def format_memory_inject_block(
+    *,
+    preferences: dict[str, str] | None = None,
+    episodic_notes: list[str] | None = None,
+    max_inject_chars: int = 1200,
+) -> str:
+    """Build the truncated preference/episodic block (may be empty)."""
     if max_inject_chars <= 0:
-        return prompt
+        return ""
 
     memory_sections: list[str] = []
     if preferences:
@@ -53,7 +69,26 @@ def compose_system_prompt(
             "Relevant remembered notes:\n" + "\n".join(note_lines)
         )
     if not memory_sections:
-        return prompt
+        return ""
+    return "\n\n".join(memory_sections)[:max_inject_chars]
 
-    memory_block = "\n\n".join(memory_sections)[:max_inject_chars]
-    return prompt + "\n\n" + memory_block
+
+def append_memory_inject(
+    base_prompt: str,
+    *,
+    preferences: dict[str, str] | None = None,
+    episodic_notes: list[str] | None = None,
+    max_inject_chars: int = 1200,
+) -> tuple[str, int]:
+    """Append a budgeted memory block to an immutable base prompt.
+
+    Returns ``(full_prompt, injected_char_count)``.
+    """
+    block = format_memory_inject_block(
+        preferences=preferences,
+        episodic_notes=episodic_notes,
+        max_inject_chars=max_inject_chars,
+    )
+    if not block:
+        return base_prompt, 0
+    return base_prompt + "\n\n" + block, len(block)

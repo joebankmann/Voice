@@ -11,6 +11,7 @@ from voice.config import MemoryConfig
 from voice.memory import EpisodicStore, PreferencesStore
 from voice.memory.intent import extract_remember_intent
 from voice.metrics import MetricsSink
+from voice.prompting import append_memory_inject
 from voice.session import (
     ConversationSession,
     SessionEvent,
@@ -20,7 +21,6 @@ from voice.session import (
 
 PipelineEvent = dict[str, Any]
 PipelineListener = Callable[[PipelineEvent], None]
-MemoryPromptComposer = Callable[..., str]
 logger = logging.getLogger(__name__)
 
 
@@ -29,7 +29,6 @@ class PipelineMemory:
     config: MemoryConfig
     preferences: PreferencesStore
     episodic: EpisodicStore
-    compose_prompt: MemoryPromptComposer
 
 
 class _ReportedPipelineError(Exception):
@@ -136,6 +135,10 @@ class VoicePipeline:
             self._prepare_memory(cleaned_transcript)
         self._emit_state()
 
+        # Barge-in during memory I/O must not start a new reply.
+        if self._interrupted.is_set():
+            return ""
+
         for event in events:
             if event.type == SessionEventType.REQUEST_REPLY:
                 return self._stream_reply()
@@ -159,16 +162,11 @@ class VoicePipeline:
             transcript,
             limit=memory.config.max_episodic_hits,
         )
-        self.system_prompt = memory.compose_prompt(
+        self.system_prompt, injected_chars = append_memory_inject(
+            self.base_system_prompt,
             preferences=preferences,
             episodic_notes=episodic_notes,
             max_inject_chars=memory.config.max_inject_chars,
-        )
-        separator = self.base_system_prompt + "\n\n"
-        injected_chars = (
-            len(self.system_prompt) - len(separator)
-            if self.system_prompt.startswith(separator)
-            else 0
         )
         self.metrics.mark(
             "memory_inject",
